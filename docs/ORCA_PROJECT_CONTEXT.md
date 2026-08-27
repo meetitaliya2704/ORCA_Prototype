@@ -1,168 +1,392 @@
 # ORCA Project Context
 
-## Problem
+## 1. Project identity
 
-Marine information is distributed across separate platforms and formats.
-Fishers and marine stakeholders need understandable, location-aware,
-evidence-based information about fishing opportunities and sea conditions.
+**Name:** ORCA — Marine EcOsystem Reasoning with Collaborative Agents  
+**Problem statement ID:** 26176  
+**Project type:** Hackathon MVP  
+**Team:** Six members  
+**Primary backend:** FastAPI and Python
 
-## Proposed solution
+ORCA is a marine decision-support platform that combines official marine information, deterministic geospatial/safety calculations, caching, and later collaborative AI agents.
 
-ORCA combines official marine datasets, geospatial processing,
-deterministic safety logic and collaborative agents.
+The intended user experience is conversational and map-based, but the backend must remain trustworthy even without an LLM.
 
-Core journeys:
+## 2. Main MVP journeys
 
-1. Find the nearest currently valid PFZ.
-2. Summarize SST, chlorophyll, weather, waves, currents and tides.
-3. Produce an explainable sea-condition recommendation.
-4. Compare safer routes while avoiding hazards and restricted zones.
+1. Find the nearest currently valid Potential Fishing Zone.
+2. Summarize SST, chlorophyll, wind, waves, currents, tides, and weather.
+3. Detect official warnings, hazards, and restricted areas.
+4. Produce an explainable sea-condition recommendation.
+5. Later compare candidate routes using deterministic cost and safety rules.
 
-## Technical architecture
+ORCA is decision support, not certified navigation advice.
 
-- Frontend: React/Next.js
-- Map: MapLibre GL/mapcn
-- Backend: FastAPI
-- Validation: Pydantic
-- External requests: HTTPX
-- Database: Supabase-hosted PostgreSQL
-- Spatial database: PostGIS
-- ORM: SQLAlchemy 2 and GeoAlchemy2
-- Migrations: Alembic
-- Cache: Redis
-- Vector processing: GeoPandas
-- NetCDF/Zarr processing: Xarray
-- Agent orchestration: LangGraph
-- Agent tools: LangChain-compatible typed tools
-- Testing: Pytest
-- Deployment: Docker
+## 3. Current repository baseline
 
-## Architectural boundaries
+The repository was intentionally reverted to the state associated with the second generated backend ZIP. Treat the actual checked-out files and tests as authoritative, and verify them before editing.
 
-- Supabase hosts PostgreSQL and can provide Auth and Storage.
-- SQLAlchemy remains the main FastAPI database layer.
-- GeoPandas is for vector-data preparation and batch processing.
-- Xarray is for SST, chlorophyll, waves and current grids.
-- PostGIS handles live distances, geofences and nearest-neighbour queries.
-- LLMs explain and coordinate; deterministic services calculate facts.
+That baseline is expected to contain most or all of the following:
 
-## Official data sources
+- A modular FastAPI application with `/v1` routes.
+- Pydantic request/response validation.
+- Shared asynchronous HTTPX infrastructure.
+- Configurable timeouts and bounded retries.
+- Deterministic demonstration sources for SST, waves, and wind.
+- Parallel source execution with partial-failure handling.
+- In-memory caching and optional Redis caching.
+- A demonstration WebSocket ingestion-progress endpoint.
+- Separate command-line/demo ingestion jobs.
+- Automated tests using fixtures and mocked HTTP responses.
+- An INCOIS PFZ live-preview endpoint.
 
-Planned sources include:
+Expected existing PFZ endpoint:
 
-- INCOIS PFZ
-- INCOIS Ocean State Forecast
-- IMD warnings and weather
-- MOSDAC SST and chlorophyll
-- Copernicus Marine
-- Bhuvan marine and administrative boundaries
+```http
+GET /v1/pfz/preview?sector_code=SEC001
+```
 
-## Implemented backend foundation
+The preview flow is expected to:
 
-The FastAPI foundation currently includes:
+1. Create a fresh INCOIS session.
+2. Bootstrap through `TextDataHome`.
+3. Retrieve one requested sector page with the same session.
+4. Validate the page.
+5. Parse forecast/advisory metadata.
+6. Parse valid PFZ rows and report malformed-row warnings.
+7. Convert DMS coordinates to decimal degrees.
+8. Return typed JSON without persistence.
 
-- Modular project structure
-- Pydantic validation
-- Shared asynchronous HTTPX usage
-- Timeouts and retries
-- Parallel marine-source execution
-- Partial-source failure handling
-- Memory and optional Redis caching
-- WebSocket progress demonstration
-- Separate ingestion commands
-- SQLAlchemy/PostGIS-ready configuration
-- Automated tests
+Known live-page fixes that must be present or re-applied after the revert:
 
-## Implemented INCOIS PFZ preview
+- Region names can appear under `#sectorname`.
+- Forecast dates may appear as `27 AUG 2026`, `27-Aug-2026`, `27/08/2026`, or `2026-08-27`.
+- Date extraction needs a raw-page fallback when the expected element varies.
 
-The PFZ preview currently performs:
+Before new implementation, run the current test suite and inspect whether these fixes survived the revert.
 
-1. Fresh-session creation.
-2. `TextDataHome` bootstrap.
-3. Automatic session-cookie handling.
-4. Sector-page retrieval.
-5. One fresh-session retry.
-6. Page-marker validation.
-7. Region-name parsing.
-8. Forecast and validity-date parsing.
-9. PFZ table extraction.
-10. DMS-to-decimal conversion.
-11. Malformed-row rejection.
-12. Typed JSON output.
+## 4. Architecture decision — API-first, cache-assisted
 
-Endpoint:
+The earlier PostgreSQL/PostGIS persistence milestone has been abandoned for the hackathon MVP because it adds unnecessary ingestion, schema, migration, and operational work.
 
-    GET /v1/pfz/preview?sector_code=SEC001
+The active architecture is:
 
-## Confirmed INCOIS HTML details
+```text
+Frontend or agent
+    -> FastAPI endpoint
+    -> validate request with Pydantic
+    -> inspect source-specific cache
+    -> fetch latest official source on cache miss/expiry
+    -> parse and normalize provider response
+    -> cache normalized result
+    -> run deterministic Python calculations
+    -> return typed JSON and GeoJSON
+```
 
-Required page markers:
+### Consequences
 
-- `#forecastdata`
-- `#satmsg`
+- PostgreSQL is not required.
+- PostGIS is not required.
+- Supabase is not required.
+- SQLAlchemy, GeoAlchemy2, and Alembic are not required by the running application.
+- The application and ordinary tests must start without `DATABASE_URL`.
+- Redis is optional; the default local cache is in memory.
+- Small geospatial searches, such as nearest PFZ, are performed in Python.
+- External providers are not called repeatedly while equivalent fresh cached data exists.
 
-The live region-name selector includes:
+If database helper files remain from the base skeleton, they are legacy/optional and must not be imported during normal startup. Do not resume database-schema work unless the user explicitly changes the architecture again.
 
-- `#sectorname`
+## 5. Target runtime workflow
 
-PFZ table fields include:
+### Fresh-data path
 
-- Coastal or landing location
-- Direction
-- Bearing
-- Distance range
-- Depth range
-- Latitude DMS
-- Longitude DMS
+1. The frontend sends coordinates, time, and optional vessel context.
+2. FastAPI validates latitude, longitude, and time.
+3. The service builds a stable cache key.
+4. If fresh normalized data exists, it is reused.
+5. Otherwise, the relevant official adapter fetches the provider.
+6. The response is parsed and normalized with Pydantic.
+7. Successfully normalized data is cached.
+8. Deterministic services calculate distance, bearing, validity, thresholds, or route cost.
+9. FastAPI returns typed JSON/GeoJSON with source and freshness metadata.
 
-Important decisions:
+### Provider-failure path
 
-- Never hard-code `JSESSIONID`.
-- Never assume sector mappings are permanent.
-- Store sector code and parsed region name separately.
-- Validate mapping on every ingestion run.
-- Preserve the last successful advisory when a later ingestion fails.
+1. The provider request uses a timeout and bounded retry policy.
+2. If it still fails, the service checks the last successful cached value.
+3. If usable cached data exists, return it as `stale` with a warning and timestamps.
+4. If no usable cached data exists, return HTTP 503 with `SOURCE_UNAVAILABLE`.
+5. Never fabricate a value or label incomplete evidence as safe.
 
-## Initial sectors
+## 6. PFZ source behavior
 
-Initially verified:
+### Official pages
 
-- `SEC001`: Gujarat
-- `SEC002`: Maharashtra
+Bootstrap page:
 
-These mappings are observations, not permanent hard-coded rules.
+```text
+https://incois.gov.in/MarineFisheries/TextDataHome?mfid=1&request_locale=en
+```
 
-The final ingestion process should discover all sector options from
-`TextDataHome` and validate each sector's live region name.
+Sector page pattern:
 
-## Next milestone
+```text
+https://incois.gov.in/MarineFisheries/TextData?secid=SEC001
+```
 
-Implement persistent PFZ storage:
+`SEC001` and `SEC002` have been observed during development, but their region mappings must never be treated as permanent.
 
-1. Configure the Supabase PostgreSQL connection.
-2. Enable PostGIS.
-3. Add Alembic.
-4. Create data-source, dataset, ingestion-run, region, landing-centre,
-   PFZ-advisory and PFZ-location tables.
-5. Upsert parsed advisories transactionally.
-6. Preserve previous valid data when ingestion fails.
-7. Implement:
+### Required refresh algorithm
 
-       GET /v1/pfz/nearest?latitude=...&longitude=...&at=...
+1. Create a fresh asynchronous HTTP session.
+2. Bootstrap `TextDataHome`.
+3. Discover all current sector option values and displayed region labels.
+4. Fetch sector pages using the same session/cookies.
+5. Require expected live markers such as `#forecastdata` and `#satmsg`.
+6. Parse the page's live region name, including `#sectorname`.
+7. Parse advisory/forecast date and validity information.
+8. Parse PFZ rows.
+9. Convert DMS latitude/longitude to decimal degrees.
+10. Reject malformed rows individually and preserve warnings.
+11. If a sector page is invalid, retry that attempt once with a completely fresh session.
+12. Merge valid sector results into one normalized advisory snapshot.
+13. Cache the snapshot according to its validity and configured maximum TTL.
 
-8. Filter expired advisories.
-9. Use PostGIS KNN for candidate selection.
-10. Use `ST_Distance` with geography for displayed kilometres.
-11. Return typed JSON and GeoJSON.
-12. Connect the result to MapLibre.
+Never hard-code or persist `JSESSIONID`. Never hard-code sector-to-region mappings.
 
-## Safety boundary
+## 7. Next endpoint
 
-ORCA is a decision-support prototype.
+Implement:
 
-It must:
+```http
+GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z
+```
 
-- Display official sources and validity.
-- Identify stale or missing evidence.
-- Avoid returning “safe” when critical evidence is unavailable.
-- Never present AI-generated output as official navigation advice.
+`at` should be optional and default to the current timezone-aware time.
+
+### Algorithm
+
+1. Validate latitude in `[-90, 90]` and longitude in `[-180, 180]`.
+2. Load the cached normalized advisory or refresh INCOIS.
+3. Exclude advisories/locations not valid at `at`.
+4. Calculate Haversine distance from the user to every valid PFZ coordinate.
+5. Select the minimum distance with a deterministic tie-break.
+6. Calculate initial bearing and compass direction.
+7. Return the result and an embedded GeoJSON Feature.
+
+### Response fields
+
+```json
+{
+  "query": {
+    "latitude": 21.6417,
+    "longitude": 69.6293,
+    "at": "2026-08-27T12:00:00Z"
+  },
+  "nearest_pfz": {
+    "sector_code": "SEC001",
+    "region_name": "Gujarat",
+    "landing_centre": "Lakhi Bandar",
+    "latitude": 22.7167,
+    "longitude": 68.9500,
+    "distance_km": 18.4,
+    "bearing_deg": 141.0,
+    "direction": "SE",
+    "distance_from_coast_km": {
+      "minimum": 122.0,
+      "maximum": 127.0
+    },
+    "depth_m": {
+      "minimum": 2.0,
+      "maximum": 7.0
+    }
+  },
+  "forecast_date": "2026-08-27",
+  "valid_until": "2026-08-28T18:30:00Z",
+  "source": {
+    "name": "INCOIS",
+    "retrieved_at": "2026-08-27T12:00:00Z",
+    "url": "https://incois.gov.in/MarineFisheries/"
+  },
+  "cache_status": "refreshed",
+  "warnings": [],
+  "geojson": {
+    "type": "Feature",
+    "geometry": {
+      "type": "Point",
+      "coordinates": [68.95, 22.7167]
+    },
+    "properties": {
+      "sector_code": "SEC001",
+      "landing_centre": "Lakhi Bandar"
+    }
+  }
+}
+```
+
+The values above illustrate the contract only. Tests must not assume live advisory values.
+
+### Error behavior
+
+- `422` — invalid coordinates or request parameters.
+- `404 NO_VALID_PFZ` — source data exists, but no PFZ is valid for `at`.
+- `502 INVALID_PFZ_RESPONSE` — a received upstream page cannot be validated or parsed and no fallback can satisfy the request.
+- `503 SOURCE_UNAVAILABLE` — provider unavailable and no usable cached result exists.
+
+## 8. Cache model
+
+Use a source-specific cache abstraction so the implementation can switch between in-memory and Redis without changing services.
+
+Required operations should conceptually include:
+
+```text
+get_fresh(key)
+get_stale(key)
+set(key, value, ttl)
+delete(key)
+```
+
+Cache status returned to clients:
+
+- `fresh`: an unexpired cached snapshot was used.
+- `refreshed`: a new official response was fetched and cached.
+- `stale`: the last successful snapshot was used after refresh failure.
+
+Suggested starting policy:
+
+| Source category | Starting policy |
+| --- | --- |
+| PFZ | Follow advisory validity, with configurable maximum TTL |
+| Weather | Short TTL, approximately 10–15 minutes |
+| Hazards/warnings | Very short TTL, approximately 5–10 minutes |
+| Waves/currents | Approximately 20–30 minutes |
+| SST/chlorophyll | Approximately 1–6 hours, based on provider updates |
+
+These are configurable engineering defaults, not claims that the source publishes at exactly those intervals.
+
+## 9. Marine data adapters
+
+Planned source categories:
+
+- INCOIS PFZ and Ocean State Forecast.
+- IMD weather, cyclone, and warning data.
+- MOSDAC/ISRO satellite products.
+- Copernicus Marine SST, chlorophyll, waves, and currents.
+- Bhuvan or other authoritative boundary/geofence sources.
+
+Each adapter should return a normalized structure containing:
+
+- Source name and URL/product identifier.
+- Variable name.
+- Coordinates or covered area.
+- Value and unit.
+- Observed time and/or forecast time.
+- Validity or expiry when supplied.
+- Retrieval time.
+- Quality flag.
+- Parsing or fallback warnings.
+- Cache status at the service/API layer.
+
+Large NetCDF, Zarr, GRIB, or GeoTIFF products must not be downloaded completely for every user request. Prefer provider-supported spatial/temporal subsetting, cache the small normalized result needed for the query, and keep adapters source-specific.
+
+GeoPandas may be used for local vector-file operations, CRS transformation, joins, clipping, and geofence checks. It is not required for simple Haversine nearest-PFZ calculation.
+
+## 10. Partial failure and safety behavior
+
+Independent external sources should run concurrently. One failure must not remove successful results from other sources.
+
+Every combined response should expose per-source state:
+
+- `success`
+- `stale`
+- `unavailable`
+- `invalid`
+
+Safety rules:
+
+- Active official warnings take precedence over favorable conditions.
+- Missing required evidence produces `INSUFFICIENT_EVIDENCE`, not `SAFE`.
+- Thresholds are vessel-specific where vessel details are available.
+- The response must include reason codes and source evidence.
+- An LLM may explain the final deterministic result but cannot override it.
+
+## 11. Testing strategy
+
+Ordinary tests must be deterministic and offline.
+
+Required PFZ coverage:
+
+- Bootstrap and same-session sector fetch.
+- Automatic sector discovery.
+- `#sectorname` region parsing.
+- All known forecast-date formats.
+- Raw-page date fallback.
+- Valid DMS conversion.
+- Hemisphere handling.
+- Malformed-row rejection while retaining valid rows.
+- Invalid-session/page retry with a fresh session.
+- Cache hit and cache miss.
+- Stale-cache fallback.
+- Provider failure with no fallback.
+- Expired-advisory exclusion.
+- Nearest-distance, bearing, and direction.
+- JSON and GeoJSON response contracts.
+
+Use saved HTML fixtures for every known INCOIS page variation. Never call the live site in the normal test suite.
+
+## 12. Current implementation roadmap
+
+### Checkpoint A — restored baseline
+
+- Confirm the application starts without database configuration.
+- Run the complete existing test suite.
+- Reapply/test `#sectorname` and flexible date parsing if the revert removed them.
+- Update documentation to this architecture.
+
+### Checkpoint B — PFZ discovery and caching
+
+- Discover every live sector from `TextDataHome`.
+- Fetch all sectors with bounded concurrency.
+- Normalize and cache one complete advisory snapshot.
+- Add offline fixtures and regression tests.
+
+### Checkpoint C — nearest PFZ
+
+- Add Haversine, bearing, and compass-direction utilities.
+- Add validity filtering.
+- Implement `/v1/pfz/nearest`.
+- Return typed JSON and GeoJSON.
+- Cover fresh, refreshed, stale, 404, 502, and 503 paths.
+
+### Checkpoint D — first real marine-condition adapter
+
+- Select one authoritative source and one variable.
+- Implement spatial/temporal subsetting, normalization, caching, and tests.
+- Replace one corresponding demo source without breaking partial-failure behavior.
+
+### Checkpoint E — combined conditions and safety
+
+- Add remaining priority sources.
+- Run independent adapters concurrently.
+- Add deterministic safety gates and reason codes.
+
+### Checkpoint F — user interface and agents
+
+- Connect React/MapLibre to typed JSON/GeoJSON endpoints.
+- Display source, validity, freshness, and warnings.
+- Add LangGraph only after deterministic services and tests are stable.
+
+## 13. Definition of the next successful milestone
+
+The next milestone is complete when:
+
+- The backend starts with no database and no Redis.
+- INCOIS sector discovery is automatic.
+- The backend uses a fresh session and never hard-codes `JSESSIONID`.
+- Region parsing handles `#sectorname`.
+- Valid PFZ rows from every discovered sector are normalized and cached.
+- `/v1/pfz/nearest` returns the nearest currently valid PFZ using deterministic Python calculations.
+- The response includes source, retrieval time, validity, cache status, warnings, and GeoJSON.
+- Provider failure returns stale data clearly when available, otherwise a typed error.
+- All normal tests pass without internet access.
+

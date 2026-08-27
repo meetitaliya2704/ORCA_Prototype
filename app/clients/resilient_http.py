@@ -3,6 +3,8 @@ from typing import Any
 
 import httpx
 
+from app.core.config import get_settings
+
 
 RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
@@ -15,9 +17,14 @@ async def get_json_with_retry(
     client: httpx.AsyncClient,
     url: str,
     *,
-    attempts: int = 3,
+    attempts: int | None = None,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if attempts is None:
+        attempts = get_settings().http_retry_attempts
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
+
     last_error: Exception | None = None
 
     for attempt in range(attempts):
@@ -53,4 +60,3 @@ async def get_json_with_retry(
             await asyncio.sleep(2**attempt)
 
     raise SourceUnavailableError(f"Source unavailable: {url}") from last_error
-

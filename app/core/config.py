@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,10 +9,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_prefix: str = "/v1"
 
-    database_url: str | None = None
-
     redis_enabled: bool = False
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str | None = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 300
 
     http_connect_timeout: float = 5.0
@@ -27,6 +26,14 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def redis_configuration_is_complete(self) -> "Settings":
+        if self.redis_enabled and not (self.redis_url or "").strip():
+            raise ValueError(
+                "REDIS_URL is required when REDIS_ENABLED=true"
+            )
+        return self
 
     @property
     def configured_pfz_sectors(self) -> tuple[str, ...]:

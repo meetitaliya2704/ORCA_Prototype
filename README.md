@@ -1,117 +1,149 @@
 # ORCA Base Backend
 
-This is a learning-first FastAPI foundation for the ORCA marine decision-support project. It deliberately uses deterministic demo marine sources so the complete architecture runs before official INCOIS, IMD, MOSDAC and Copernicus adapters are added.
+ORCA is a hackathon marine decision-support backend built with FastAPI and
+Python. It combines official marine data, deterministic calculations, typed
+responses, and caching. It is decision support, not certified navigation
+advice.
 
-## What already works
+## Active architecture
 
-- FastAPI application with versioned routes
-- Typed Pydantic request/response contracts
-- Shared asynchronous HTTPX client
-- Explicit timeouts, retries and error classification
-- Parallel source execution with partial-failure handling
-- In-memory caching by default and optional Redis caching
-- WebSocket ingestion-progress demonstration
-- Separate scheduled-ingestion command
-- Supabase/PostgreSQL/PostGIS-ready SQLAlchemy configuration
-- Health and marine endpoint tests
-
-## Architecture
+The MVP is API-first and cache-assisted:
 
 ```text
-Request -> FastAPI route -> Marine service -> Parallel source adapters
-                                      |-> cache
-                                      |-> later: PostgreSQL/PostGIS
-
-Scheduled job -> same Marine service -> validated results -> later: database
-WebSocket -> progress events for the frontend
+Client request
+    -> FastAPI and Pydantic validation
+    -> source-specific cache lookup
+    -> official provider on a cache miss
+    -> parser and Pydantic normalization
+    -> cache normalized data
+    -> deterministic Python calculation
+    -> typed JSON or GeoJSON response
 ```
 
-## 1. Setup on Windows PowerShell
+The application does not require a database. The default cache is an
+in-process TTL cache, so local development and tests require no external
+services.
+
+Redis is optional. Enable it only when a shared cache is useful; install the
+optional dependency and run the Redis service first:
 
 ```powershell
-cd ORCA_base_backend
+python -m pip install -e ".[redis,test]"
+docker compose up -d redis
+```
+
+Then configure:
+
+```env
+REDIS_ENABLED=true
+REDIS_URL=redis://localhost:6379/0
+```
+
+## What is currently implemented
+
+- Versioned FastAPI routes and typed Pydantic responses.
+- Shared asynchronous HTTPX infrastructure with timeouts and bounded retries.
+- Deterministic demonstration sources for SST, waves, and wind.
+- Concurrent marine-source execution with partial-failure results.
+- In-memory TTL caching by default and optional Redis caching.
+- An offline-tested INCOIS PFZ single-sector preview using a fresh session.
+- INCOIS page validation, flexible forecast-date parsing, DMS conversion, and
+  malformed-row warnings.
+- A demonstration WebSocket ingestion-progress stream.
+- Separate demonstration and PFZ command-line ingestion jobs.
+
+Current endpoints:
+
+- `GET /v1/health`
+- `GET /v1/marine/conditions?latitude=20.5&longitude=72.9`
+- `GET /v1/pfz/preview?sector_code=SEC001`
+- `WS /v1/ws/ingestion`
+
+Automatic PFZ sector discovery, PFZ snapshot caching, stale fallback,
+nearest-PFZ calculations, GeoJSON, and real marine adapters are later
+checkpoints and are not implemented yet.
+
+## Setup
+
+Python 3.11 or newer is required.
+
+```powershell
 py -m venv .venv
 .venv\Scripts\activate
 python -m pip install -e ".[test]"
 Copy-Item .env.example .env
 ```
 
-## 2. Run the API
+Run the API:
 
 ```powershell
 fastapi dev app/main.py
 ```
 
-Open:
+Open the API documentation at <http://127.0.0.1:8000/docs>.
 
-- API docs: http://127.0.0.1:8000/docs
-- Health: http://127.0.0.1:8000/v1/health
-- Marine conditions: http://127.0.0.1:8000/v1/marine/conditions?latitude=20.5&longitude=72.9
-- Live PFZ preview: http://127.0.0.1:8000/v1/pfz/preview?sector_code=SEC001
-
-## 3. Run tests
+Run the complete offline test suite:
 
 ```powershell
 pytest
 ```
 
-## 4. Optional Redis/PostGIS development services
-
-```powershell
-docker compose up -d
-```
-
-Then update `.env`:
-
-```env
-REDIS_ENABLED=true
-DATABASE_URL=postgresql+asyncpg://orca:orca_dev_password@localhost:5432/orca
-```
-
-For Supabase, replace `DATABASE_URL` with the SQLAlchemy-compatible connection URL from the Supabase Connect panel. Never put that URL or a Supabase secret key in the frontend.
-
-## 5. Run the ingestion command
+Run the demonstration ingestion command:
 
 ```powershell
 python -m app.jobs.ingest_demo
 ```
 
-Run the real INCOIS PFZ preview ingestion for configured sectors:
+The current single-sector PFZ preview command is:
 
 ```powershell
 python -m app.jobs.ingest_pfz
 ```
 
-The default sectors are `SEC001,SEC002`. Change them without editing code:
+It still uses configured development sectors. Automatic discovery replaces
+that behavior in Checkpoint B.
 
-```env
-PFZ_SECTOR_CODES=SEC001,SEC002
-PFZ_SESSION_ATTEMPTS=2
-```
+## Implementation checkpoints
 
-The PFZ implementation creates a fresh HTTP session, opens `TextDataHome`,
-uses the resulting cookie for the sector request, validates `#forecastdata`
-and `#satmsg`, and recreates the complete session once if the page is invalid.
-No `JSESSIONID` is stored or hard-coded.
+### Checkpoint A — restored baseline
 
-Schedule this command externally after it works manually. Do not place a recurring scheduler inside every FastAPI worker.
+- Confirm the application starts without database configuration.
+- Run the complete existing test suite.
+- Protect `#sectorname` and flexible date parsing with regression tests.
+- Align dependencies and documentation with the API-first architecture.
 
-## Learning order
+### Checkpoint B — PFZ discovery and caching
 
-1. Read `app/clients/resilient_http.py` for HTTPX, timeouts and retries.
-2. Read `app/services/marine.py` for parallel calls and partial failures.
-3. Read `app/services/cache.py` for memory/Redis caching.
-4. Read `app/jobs/ingest_demo.py` for scheduled-ingestion separation.
-5. Read `app/api/routes/websocket.py` for live progress.
-6. Replace one demo adapter with one official source adapter.
+- Discover every live sector from `TextDataHome`.
+- Fetch all sectors with bounded concurrency.
+- Normalize and cache one complete advisory snapshot.
+- Add offline fixtures and regression tests.
 
-## Next ORCA implementation steps
+### Checkpoint C — nearest PFZ
 
-1. Add Alembic and the first seven PFZ tables.
-2. Store parsed PFZ points using PostGIS geography.
-3. Replace the preview job's JSON-only output with transactional database upserts.
-4. Implement `/v1/pfz/nearest` with a valid-advisory filter and PostGIS KNN.
-5. Connect the GeoJSON response to MapLibre.
-6. Add LangGraph only after the deterministic endpoint is tested.
+- Add Haversine, bearing, and compass-direction utilities.
+- Add validity filtering.
+- Implement `/v1/pfz/nearest`.
+- Return typed JSON and GeoJSON.
+- Cover fresh, refreshed, stale, 404, 502, and 503 paths.
 
-This project is a decision-support prototype. It must preserve source, timestamp, validity and quality metadata and must not describe generated output as official navigation advice.
+### Checkpoint D — first real marine-condition adapter
+
+- Select one authoritative source and one variable.
+- Implement spatial/temporal subsetting, normalization, caching, and tests.
+- Replace one demo source without breaking partial-failure behavior.
+
+### Checkpoint E — combined conditions and safety
+
+- Add remaining priority sources.
+- Run independent adapters concurrently.
+- Add deterministic safety gates and reason codes.
+
+### Checkpoint F — user interface and agents
+
+- Connect React/MapLibre to typed JSON and GeoJSON endpoints.
+- Display source, validity, freshness, and warnings.
+- Add LangGraph only after deterministic services and tests are stable.
+
+See `docs/ORCA_PROJECT_CONTEXT.md` for source rules, failure contracts, and
+the complete architecture context.

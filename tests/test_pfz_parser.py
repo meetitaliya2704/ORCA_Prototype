@@ -74,3 +74,15 @@ def test_parse_forecast_date_from_raw_live_page_variant() -> None:
 
     assert advisory.forecast_date.isoformat() == "2026-08-27"
     assert advisory.valid_until.isoformat() == "2026-08-28"
+
+
+def test_parse_region_name_from_sectorname_variant() -> None:
+    advisory = parse_pfz_advisory(
+        home_html=load_fixture("incois_home.html"),
+        sector_html=load_fixture("incois_sectorname_variant.html"),
+        sector_code="SEC003",
+        source_url="https://incois.test/TextData?secid=SEC003",
+    )
+
+    assert advisory.region_name == "Odisha"
+    assert advisory.locations[0].landing_centre == "Paradip"

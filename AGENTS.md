@@ -1,136 +1,222 @@
-# ORCA Agent Instructions
+# AGENTS.md — ORCA Backend
 
-## Project purpose
+## 1. Required reading
 
-ORCA is a marine decision-support platform that combines official
-marine datasets, deterministic geospatial calculations and collaborative
-AI agents.
+Before inspecting, planning, or modifying this repository:
 
-Read `docs/ORCA_PROJECT_CONTEXT.md` before making architectural,
-database, ingestion or agent-related changes.
+1. Read this file completely.
+2. Read `docs/ORCA_PROJECT_CONTEXT.md` completely.
+3. Inspect the current repository instead of assuming every item in the context file is already implemented.
+4. Check `git status` and preserve unrelated user changes.
 
-## Repository structure
+If code and documentation disagree, report the difference before making a large architectural change.
 
-- `app/api/`: FastAPI routes
-- `app/clients/`: external-source clients
-- `app/parsers/`: pure response parsers
-- `app/schemas/`: Pydantic request and response models
-- `app/services/`: business logic
-- `app/db/`: SQLAlchemy database layer
-- `app/jobs/`: scheduled-ingestion commands
-- `tests/`: automated tests and source fixtures
-- `docs/`: architecture and project decisions
+## 2. Project purpose
 
-## Development environment
+ORCA is a hackathon marine decision-support platform. It combines official marine data, deterministic Python calculations, caching, and later collaborative AI agents.
 
-The project uses Python and a persistent virtual environment at `.venv`.
+The MVP user journeys are:
 
-Windows activation:
+- Find the nearest currently valid Potential Fishing Zone (PFZ).
+- Summarize SST, chlorophyll, waves, currents, tides, wind, and weather.
+- Identify active hazards and restricted areas.
+- Produce an explainable sea-condition recommendation.
+- Later compare candidate routes using deterministic risk rules.
 
-    .venv\Scripts\activate
+ORCA is not an official navigation system. Never describe generated output as certified navigation advice.
 
-Install dependencies:
+## 3. Current architecture decision
 
-    python -m pip install -e ".[test]"
+The active hackathon MVP is **API-first and cache-assisted**.
 
-Run the API:
+```text
+Client request
+    -> FastAPI validation
+    -> fresh-cache lookup
+    -> official external source on cache miss
+    -> Pydantic normalization
+    -> cache normalized result
+    -> deterministic Python calculation
+    -> typed JSON / GeoJSON response
+```
 
-    fastapi dev app/main.py
+### Mandatory constraints
 
-Run all tests:
+- The application must run without PostgreSQL, PostGIS, Supabase, SQLAlchemy, GeoAlchemy2, or Alembic.
+- Do not add database schemas, migrations, repositories, ingestion tables, or persistence unless the user explicitly changes this decision.
+- Database-related skeleton files may exist from an older experiment. They are not the active architecture and must not be imported by application startup or required by tests.
+- Use an in-memory TTL cache by default.
+- Redis may be supported as an optional cache, but Redis must not be required for local development or tests.
+- Do not call every provider repeatedly when equivalent fresh data already exists in cache.
+- “Real-time” means the latest official data available from the provider, respecting the provider's update frequency and validity window.
 
-    pytest
+## 4. Engineering boundaries
 
-API documentation:
+### FastAPI routes
 
-    http://127.0.0.1:8000/docs
+- Keep route handlers thin.
+- Routes validate HTTP input, call a service, and return a typed response.
+- Do not place HTML parsing, distance calculations, cache logic, or provider-specific request logic inside route modules.
+- Put all public endpoints under `/v1`.
+- Use Pydantic request and response models.
+- Return stable machine-readable error codes in addition to human-readable messages.
 
-## Required workflow
+### Services
 
-Before modifying code:
+- Services coordinate clients, parsers, caches, and deterministic calculations.
+- Services must not depend directly on FastAPI request objects.
+- Inject clients and caches so tests can replace them with fakes.
+- Prefer small source-specific services over one large all-purpose module.
 
-1. Read this file.
-2. Read `docs/ORCA_PROJECT_CONTEXT.md`.
-3. Inspect the related implementation and tests.
-4. Explain the planned change briefly.
-5. Preserve unrelated existing code.
+### External-source clients
 
-After modifying code:
+- Use one shared asynchronous HTTPX infrastructure where practical.
+- Every external request must define a timeout.
+- Retry only transient failures such as connection errors, timeouts, and selected 5xx responses.
+- Use bounded retries and short backoff. Never retry indefinitely.
+- Limit concurrency with a semaphore when fetching many sectors or sources.
+- A client fetches raw source data; it must not implement business recommendations.
 
-1. Add or update regression tests.
-2. Run the relevant tests.
-3. Run the complete `pytest` suite.
-4. Report which files changed.
-5. Report test results and remaining limitations.
+### Parsers and normalization
 
-## Engineering rules
+- Keep parsing separate from networking.
+- Convert raw provider responses into source-specific Pydantic models.
+- Normalize timestamps to timezone-aware values.
+- Preserve original source timestamps, retrieval time, validity, units, coordinates, and quality information.
+- Reject malformed individual records while retaining valid records when safe to do so.
+- Never silently invent a missing value.
 
-- Keep API routes thin.
-- Put business logic in services.
-- Keep external HTTP retrieval inside clients.
-- Keep HTML, JSON and XML parsing in parser modules.
-- Use Pydantic schemas for external and API data.
-- Use SQLAlchemy 2 for database operations.
-- Use Alembic for every schema change.
-- Use PostGIS for distances and spatial queries.
-- Use GeoJSON coordinate order: longitude, latitude.
-- Do not let an LLM calculate distances, validity or safety thresholds.
-- Do not silently invent missing marine values.
-- Preserve source, retrieval time, forecast time, validity and quality metadata.
-- Return controlled errors for unavailable or invalid external sources.
+### Deterministic logic
 
-## INCOIS PFZ rules
+These operations must be implemented and tested in normal Python/geospatial code, never delegated to an LLM:
 
-- Never hard-code or store `JSESSIONID`.
-- Create a fresh HTTP session for each ingestion attempt.
-- Bootstrap the session through `TextDataHome`.
-- Fetch sector pages using the same session.
-- Retry once with a completely fresh session when page validation fails.
-- Validate the presence of `#forecastdata` and `#satmsg`.
-- Extract region names from the live page.
-- Support `#sectorname` when extracting the region name.
-- Never guess or hard-code a sector-to-region mapping.
-- Store both the sector code and parsed region name.
-- Treat sector mappings as changeable.
-- Convert DMS coordinates to decimal coordinates.
-- Reject malformed rows without rejecting all valid rows.
-- Add an HTML fixture and regression test for every discovered page variation.
-- Do not call INCOIS during ordinary unit tests.
-- Use saved fixtures or mocked HTTP responses in tests.
+- Coordinate conversion.
+- Haversine distance.
+- Bearing and compass direction.
+- Time-window and advisory-validity filtering.
+- Unit conversion.
+- Threshold checks.
+- Geofence intersections.
+- Route cost and safety veto rules.
 
-## Current PFZ endpoint
+For the hackathon-sized PFZ dataset, calculate nearest PFZ in Python. PostGIS is not required.
 
-Development preview:
+## 5. INCOIS PFZ rules
 
-    GET /v1/pfz/preview?sector_code=SEC001
+Treat all of the following as non-negotiable:
 
-The preview endpoint performs live retrieval and parsing but does not
-yet store PFZ records in PostGIS.
+1. Never hard-code, persist, log, or manually configure `JSESSIONID`.
+2. Create a fresh HTTP session for a new PFZ refresh attempt.
+3. Bootstrap through:
+   `https://incois.gov.in/MarineFisheries/TextDataHome?mfid=1&request_locale=en`
+4. Discover current sector options from `TextDataHome`; do not assume only `SEC001` and `SEC002` exist.
+5. Fetch sector pages with the same session used for bootstrap.
+6. Validate sector pages using the expected live markers, including `#forecastdata` and `#satmsg`.
+7. Parse the live region name, including the `#sectorname` selector variant.
+8. Never hard-code a sector-to-region mapping. Store/return the sector code and parsed region name separately.
+9. If page validation fails, retry once using a completely fresh session.
+10. Convert DMS coordinates to decimal degrees using deterministic code.
+11. Reject malformed PFZ rows individually while keeping valid rows and recording warnings.
+12. Support known forecast-date forms such as `27 AUG 2026`, `27-Aug-2026`, `27/08/2026`, and `2026-08-27`.
+13. Keep a raw-page date fallback because the live page structure can vary.
+14. Preserve forecast date, validity text/time, source URL, retrieval time, and parsing warnings.
+15. Ordinary automated tests must never call the live INCOIS site.
+16. Add a saved HTML fixture and regression test whenever a new page variation is discovered.
 
-The next major backend milestone is:
+## 6. Cache behavior
 
-1. Add PFZ database tables using Alembic.
-2. Store advisories and locations transactionally.
-3. Implement the nearest currently valid PFZ endpoint.
-4. Return JSON and GeoJSON.
-5. Add PostGIS KNN and exact-distance tests.
+Use cache-aside behavior:
 
-## Security
+1. Build a stable source-specific cache key.
+2. Return a fresh cached normalized result when present.
+3. On a miss or expiry, fetch and normalize the official source.
+4. Cache only successfully validated normalized data.
+5. Keep the last successful value available as a stale fallback when practical.
+6. If refresh fails and stale data exists, return it with `cache_status="stale"`, a warning, its retrieval time, and original validity.
+7. If refresh fails and no usable cached data exists, return a typed `503 SOURCE_UNAVAILABLE` response.
+8. Never label stale, expired, or incomplete evidence as current or safe.
 
-- Never commit `.env`.
-- Never expose database passwords.
-- Never expose Supabase secret or service-role keys.
-- Never expose external API credentials.
-- Add new environment-variable names to `.env.example` without real values.
-- Ask before introducing a new production dependency.
+Recommended cache-status values:
 
-## Definition of done
+- `fresh` — served from an unexpired cache entry.
+- `refreshed` — fetched from the provider during this request and cached.
+- `stale` — last successful data returned because refresh failed.
 
-A change is complete only when:
+Cache durations must be configurable per source. PFZ should primarily follow its advisory validity; weather and hazards should use shorter TTLs than SST/chlorophyll products.
 
-- The requested behaviour works.
-- Input and external responses are validated.
-- Failure cases are handled.
-- Regression tests exist.
-- The complete test suite passes.
-- Documentation is updated when behaviour or architecture changes.
+## 7. Concurrent marine-source behavior
+
+- Fetch independent sources concurrently with `asyncio.gather(..., return_exceptions=True)` or an equivalent controlled pattern.
+- One failed source must not erase successful independent results.
+- Return per-source status, retrieval time, freshness, and error information.
+- A safety recommendation must become `INSUFFICIENT_EVIDENCE` when required evidence is unavailable or stale beyond an allowed limit.
+- An active official warning must take precedence over a favorable model-derived score.
+
+## 8. LLM and agent rules
+
+LangGraph and LLM integration is a later layer, not the data or calculation layer.
+
+An LLM may:
+
+- Classify intent.
+- Select tested tools.
+- Coordinate specialist services.
+- Explain already-computed results in the user's language.
+
+An LLM must not:
+
+- Fetch or scrape providers directly when a tested adapter exists.
+- Calculate distance, bearing, validity, risk, or route geometry.
+- Change source coordinates or timestamps.
+- Fabricate missing marine data.
+- Override official warnings or deterministic safety gates.
+
+## 9. Testing requirements
+
+- Use `pytest` and asynchronous test support where needed.
+- No normal test may require internet access, PostgreSQL, Redis, or provider credentials.
+- Use saved fixtures, fake clients, and mocked HTTP responses.
+- Test success, malformed data, timeout, retry, partial failure, cache hit, cache miss, stale fallback, and no-fallback behavior.
+- Test coordinate validation and boundary values.
+- Test Haversine distance and bearing against known examples with explicit tolerances.
+- Test that expired PFZ advisories are excluded.
+- Test that an active official warning triggers the deterministic veto.
+- Run the smallest relevant tests during development, then run the complete suite before handing off.
+
+## 10. Configuration and security
+
+- Keep secrets and provider credentials in environment variables.
+- Maintain `.env.example` with names and safe placeholder values only.
+- Never commit `.env`, tokens, cookies, credentials, downloaded private data, or session IDs.
+- Do not log cookies, authorization headers, or full secret-bearing URLs.
+- Keep optional integrations disabled by default when configuration is absent.
+
+## 11. Change workflow for Codex
+
+For every requested implementation:
+
+1. Read the required context files.
+2. Inspect the relevant current files and tests.
+3. State a concise plan and list the files that will change.
+4. Implement only the requested checkpoint.
+5. Preserve working behavior and unrelated user changes.
+6. Add or update tests with the implementation.
+7. Run relevant tests and then the full suite when practical.
+8. Report what changed, test results, remaining limitations, and the next safe checkpoint.
+
+Do not create ZIP archives, duplicate repositories, database migrations, or broad rewrites unless the user explicitly asks.
+
+## 12. Current implementation order
+
+Build in this order:
+
+1. Verify the restored second-ZIP baseline and tests.
+2. Automatic INCOIS sector discovery.
+3. Cached normalized PFZ advisory service.
+4. Deterministic nearest-PFZ endpoint with JSON and GeoJSON.
+5. First real marine-condition adapter.
+6. Additional marine sources with partial-failure handling.
+7. Deterministic safety assessment.
+8. React/MapLibre integration.
+9. LangGraph orchestration after deterministic services are stable.
+
