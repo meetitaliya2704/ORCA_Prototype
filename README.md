@@ -47,6 +47,10 @@ REDIS_URL=redis://localhost:6379/0
 - Concurrent marine-source execution with partial-failure results.
 - In-memory TTL caching by default and optional Redis caching.
 - An offline-tested INCOIS PFZ single-sector preview using a fresh session.
+- Automatic INCOIS sector discovery and bounded concurrent sector retrieval.
+- A normalized PFZ snapshot with complete/partial status and per-sector errors.
+- PFZ cache-aside behavior with fresh and last-success keys, stale fallback,
+  and process-local single-flight refresh protection.
 - INCOIS page validation, flexible forecast-date parsing, DMS conversion, and
   malformed-row warnings.
 - A demonstration WebSocket ingestion-progress stream.
@@ -57,10 +61,10 @@ Current endpoints:
 - `GET /v1/health`
 - `GET /v1/marine/conditions?latitude=20.5&longitude=72.9`
 - `GET /v1/pfz/preview?sector_code=SEC001`
+- `GET /v1/pfz/snapshot`
 - `WS /v1/ws/ingestion`
 
-Automatic PFZ sector discovery, PFZ snapshot caching, stale fallback,
-nearest-PFZ calculations, GeoJSON, and real marine adapters are later
+Nearest-PFZ calculations, GeoJSON, and real marine adapters are later
 checkpoints and are not implemented yet.
 
 ## Setup
@@ -94,14 +98,12 @@ Run the demonstration ingestion command:
 python -m app.jobs.ingest_demo
 ```
 
-The current single-sector PFZ preview command is:
+The PFZ snapshot refresh command uses the same discovery, normalization, and
+cache service as the public API:
 
 ```powershell
 python -m app.jobs.ingest_pfz
 ```
-
-It still uses configured development sectors. Automatic discovery replaces
-that behavior in Checkpoint B.
 
 ## Implementation checkpoints
 
@@ -114,6 +116,7 @@ that behavior in Checkpoint B.
 
 ### Checkpoint B — PFZ discovery and caching
 
+- Active checkpoint.
 - Discover every live sector from `TextDataHome`.
 - Fetch all sectors with bounded concurrency.
 - Normalize and cache one complete advisory snapshot.

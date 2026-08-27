@@ -22,6 +22,16 @@ The intended user experience is conversational and map-based, but the backend mu
 
 ORCA is decision support, not certified navigation advice.
 
+## Current implementation status
+
+- Checkpoint A is complete with 22 tests passing.
+- Database dependencies and runtime components have been removed.
+- Redis is an optional integration; the default cache is in memory.
+- `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
+- A dedicated `#sectorname` regression fixture protects the live-page variant.
+- Checkpoint B, automatic PFZ sector discovery and cached normalized snapshots,
+  is now active.
+
 ## 3. Current repository baseline
 
 The repository was intentionally reverted to the state associated with the second generated backend ZIP. Treat the actual checked-out files and tests as authoritative, and verify them before editing.
@@ -389,4 +399,3 @@ The next milestone is complete when:
 - The response includes source, retrieval time, validity, cache status, warnings, and GeoJSON.
 - Provider failure returns stale data clearly when available, otherwise a typed error.
 - All normal tests pass without internet access.
-

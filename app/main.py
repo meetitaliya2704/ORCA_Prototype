@@ -10,7 +10,7 @@ from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
 from app.services.cache import MemoryJsonCache, RedisJsonCache
 from app.services.marine import MarineConditionsService
-from app.services.pfz import PFZPreviewService
+from app.services.pfz import PFZPreviewService, PFZSnapshotService
 
 
 settings = get_settings()
@@ -27,11 +27,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     transport = httpx.AsyncHTTPTransport(retries=1)
     client = httpx.AsyncClient(timeout=timeout, transport=transport)
 
-    cache = (
-        RedisJsonCache(settings.redis_url)
-        if settings.redis_enabled
-        else MemoryJsonCache()
-    )
+    if settings.redis_enabled:
+        assert settings.redis_url is not None
+        cache = RedisJsonCache(settings.redis_url)
+    else:
+        cache = MemoryJsonCache()
 
     sources = [
         DemoMarineSource("sst", "SST", 29.4, "degC"),
@@ -45,13 +45,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         sources=sources,
         cache_ttl=settings.cache_ttl_seconds,
     )
-    app.state.pfz_service = PFZPreviewService(
-        IncoisPFZClient(
-            base_url=settings.incois_base_url,
-            connect_timeout=settings.http_connect_timeout,
-            read_timeout=settings.http_read_timeout,
-            session_attempts=settings.pfz_session_attempts,
-        )
+    pfz_client = IncoisPFZClient(
+        base_url=settings.incois_base_url,
+        connect_timeout=settings.http_connect_timeout,
+        read_timeout=settings.http_read_timeout,
+        fetch_concurrency=settings.pfz_fetch_concurrency,
+    )
+    app.state.pfz_service = PFZPreviewService(pfz_client)
+    app.state.pfz_snapshot_service = PFZSnapshotService(
+        client=pfz_client,
+        cache=cache,
+        fresh_ttl_seconds=settings.pfz_cache_ttl_seconds,
+        stale_ttl_seconds=settings.pfz_stale_ttl_seconds,
     )
 
     yield

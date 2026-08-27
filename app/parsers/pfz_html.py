@@ -1,9 +1,10 @@
 import re
 from datetime import date, datetime
+from urllib.parse import parse_qsl, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from app.schemas.pfz import PFZAdvisory, PFZLocation
+from app.schemas.pfz import DiscoveredPFZSector, PFZAdvisory, PFZLocation
 
 
 TEXT_MONTH_DATE_PATTERN = re.compile(
@@ -21,16 +22,74 @@ ISO_DATE_PATTERN = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
 class PFZParseError(ValueError):
     """Raised when a page is not a usable INCOIS PFZ data page."""
 
+    def __init__(self, message: str, *, stage: str = "pfz_parsing") -> None:
+        super().__init__(message)
+        self.stage = stage
+
+
+class NoSectorsDiscoveredError(PFZParseError):
+    """Raised when TextDataHome contains no usable sector options."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "No valid PFZ sector options found",
+            stage="sector_discovery",
+        )
+
 
 def normalize_text(value: str) -> str:
     return " ".join(value.replace("\xa0", " ").split())
 
 
 def is_valid_pfz_sector_html(html: str) -> bool:
+    markers = pfz_marker_presence(html)
+    return markers["has_forecastdata"] and markers["has_satmsg"]
+
+
+def pfz_marker_presence(html: str) -> dict[str, bool]:
     soup = BeautifulSoup(html, "html.parser")
-    return soup.select_one("#forecastdata") is not None and soup.select_one(
-        "#satmsg"
-    ) is not None
+    return {
+        "has_forecastdata": soup.select_one("#forecastdata") is not None,
+        "has_satmsg": soup.select_one("#satmsg") is not None,
+        "has_sectorname": soup.select_one("#sectorname") is not None,
+    }
+
+
+def parse_pfz_sector_options(home_html: str) -> list[DiscoveredPFZSector]:
+    """Return unique live sector options in their source order."""
+    soup = BeautifulSoup(home_html, "html.parser")
+    sectors: list[DiscoveredPFZSector] = []
+    seen: set[str] = set()
+
+    for option in soup.select("option[value]"):
+        raw_value = str(option.get("value", "")).strip()
+        normalized_value = raw_value.upper()
+        if re.fullmatch(r"SEC\d+", normalized_value) is not None:
+            sector_code = normalized_value
+        else:
+            sector_code = ""
+            for key, value in parse_qsl(urlsplit(raw_value).query):
+                candidate = value.strip().upper()
+                if key.lower() == "secid" and re.fullmatch(
+                    r"SEC\d+", candidate
+                ):
+                    sector_code = candidate
+                    break
+
+        if not sector_code or sector_code in seen:
+            continue
+
+        seen.add(sector_code)
+        sectors.append(
+            DiscoveredPFZSector(
+                sector_code=sector_code,
+                display_label=normalize_text(option.get_text(" ", strip=True)),
+            )
+        )
+
+    if not sectors:
+        raise NoSectorsDiscoveredError()
+    return sectors
 
 
 def dms_to_decimal(value: str) -> float:
@@ -90,7 +149,10 @@ def extract_dates(value: str) -> list[date]:
 def parse_date(value: str) -> date:
     dates = extract_dates(value)
     if not dates:
-        raise PFZParseError(f"Date not found in: {value!r}")
+        raise PFZParseError(
+            f"Date not found in: {value!r}",
+            stage="date_parsing",
+        )
     return dates[0]
 
 
@@ -166,7 +228,10 @@ def _extract_region_name(soup: BeautifulSoup) -> str:
     if heading is not None:
         return normalize_text(heading.get_text(" ", strip=True))
 
-    raise PFZParseError("Region name not found; mapping must not be guessed")
+    raise PFZParseError(
+        "Region name not found; mapping must not be guessed",
+        stage="sector_name_parsing",
+    )
 
 
 def _header_index(headers: list[str], *keywords: str) -> int:
@@ -174,7 +239,10 @@ def _header_index(headers: list[str], *keywords: str) -> int:
         normalized = header.lower()
         if all(keyword in normalized for keyword in keywords):
             return index
-    raise PFZParseError(f"PFZ table column not found: {' '.join(keywords)}")
+    raise PFZParseError(
+        f"PFZ table column not found: {' '.join(keywords)}",
+        stage="pfz_location_parsing",
+    )
 
 
 def _find_pfz_table(soup: BeautifulSoup) -> tuple[Tag, list[str]]:
@@ -186,7 +254,10 @@ def _find_pfz_table(soup: BeautifulSoup) -> tuple[Tag, list[str]]:
         joined = " ".join(headers).lower()
         if "latitude" in joined and "longitude" in joined and "bearing" in joined:
             return table, headers
-    raise PFZParseError("PFZ data table not found")
+    raise PFZParseError(
+        "PFZ data table not found",
+        stage="pfz_location_parsing",
+    )
 
 
 def _parse_locations(soup: BeautifulSoup) -> tuple[list[PFZLocation], list[str]]:
@@ -247,7 +318,10 @@ def _parse_locations(soup: BeautifulSoup) -> tuple[list[PFZLocation], list[str]]
             warnings.append(f"Rejected table row {row_number}: {exc}")
 
     if not locations:
-        raise PFZParseError("PFZ table contained no valid locations")
+        raise PFZParseError(
+            "PFZ table contained no valid locations",
+            stage="pfz_location_parsing",
+        )
     return locations, warnings
 
 
@@ -259,7 +333,10 @@ def parse_pfz_advisory(
     source_url: str,
 ) -> PFZAdvisory:
     if not is_valid_pfz_sector_html(sector_html):
-        raise PFZParseError("Missing #forecastdata or #satmsg page markers")
+        raise PFZParseError(
+            "Missing #forecastdata or #satmsg page markers",
+            stage="page_marker_validation",
+        )
 
     sector_soup = BeautifulSoup(sector_html, "html.parser")
     home_soup = BeautifulSoup(home_html, "html.parser")
@@ -290,7 +367,8 @@ def parse_pfz_advisory(
         detected = ", ".join(item.isoformat() for item in extract_dates(home_html))
         raise PFZParseError(
             "Forecast date not found"
-            + (f"; detected home dates: {detected}" if detected else "")
+            + (f"; detected home dates: {detected}" if detected else ""),
+            stage="forecast_date_parsing",
         )
 
     locations, warnings = _parse_locations(sector_soup)
@@ -306,4 +384,7 @@ def parse_pfz_advisory(
             source_url=source_url,
         )
     except ValueError as exc:
-        raise PFZParseError(f"Invalid normalized PFZ advisory: {exc}") from exc
+        raise PFZParseError(
+            f"Invalid normalized PFZ advisory: {exc}",
+            stage="advisory_normalization",
+        ) from exc

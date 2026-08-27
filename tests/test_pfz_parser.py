@@ -3,10 +3,12 @@ from pathlib import Path
 import pytest
 
 from app.parsers.pfz_html import (
+    NoSectorsDiscoveredError,
     PFZParseError,
     dms_to_decimal,
     parse_date,
     parse_pfz_advisory,
+    parse_pfz_sector_options,
 )
 
 
@@ -86,3 +88,40 @@ def test_parse_region_name_from_sectorname_variant() -> None:
 
     assert advisory.region_name == "Odisha"
     assert advisory.locations[0].landing_centre == "Paradip"
+
+
+def test_discover_sectors_removes_placeholders_and_duplicates_in_order() -> None:
+    sectors = parse_pfz_sector_options(
+        load_fixture("incois_home_sectors.html")
+    )
+
+    assert [sector.sector_code for sector in sectors] == [
+        "SEC001",
+        "SEC003",
+        "SEC004",
+    ]
+    assert sectors[0].display_label == (
+        "Discovery label, not authoritative Gujarat"
+    )
+    assert sectors[1].display_label == (
+        "Discovery label, not authoritative Odisha"
+    )
+
+
+def test_discover_sectors_from_live_url_valued_options() -> None:
+    sectors = parse_pfz_sector_options(
+        load_fixture("incois_home_url_sector_values.html")
+    )
+
+    assert [sector.sector_code for sector in sectors] == ["SEC001", "SEC002"]
+    assert [sector.display_label for sector in sectors] == [
+        "GUJARAT",
+        "MAHARASHTRA",
+    ]
+
+
+def test_empty_discovery_raises_typed_error() -> None:
+    with pytest.raises(NoSectorsDiscoveredError) as captured:
+        parse_pfz_sector_options('<option value="#">Select Sector</option>')
+
+    assert captured.value.stage == "sector_discovery"

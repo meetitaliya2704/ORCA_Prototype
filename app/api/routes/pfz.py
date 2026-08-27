@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.clients.incois_pfz import PFZSourceUnavailableError
-from app.parsers.pfz_html import PFZParseError
-from app.schemas.pfz import PFZAdvisory
+from app.parsers.pfz_html import NoSectorsDiscoveredError, PFZParseError
+from app.schemas.pfz import PFZAdvisory, PFZSnapshot
 
 
 router = APIRouter(prefix="/pfz", tags=["pfz"])
@@ -55,4 +55,81 @@ async def preview_pfz_sector(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"code": "INVALID_PFZ_RESPONSE", "message": str(exc)},
+        ) from exc
+
+
+@router.get(
+    "/snapshot",
+    response_model=PFZSnapshot,
+    responses={
+        502: {
+            "description": (
+                "INCOIS returned no discoverable sectors or invalid PFZ content"
+            ),
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "no_sectors": {
+                            "value": {
+                                "detail": {
+                                    "code": "NO_SECTORS_DISCOVERED",
+                                    "message": (
+                                        "INCOIS returned no discoverable PFZ sectors"
+                                    ),
+                                }
+                            }
+                        },
+                        "invalid_content": {
+                            "value": {
+                                "detail": {
+                                    "code": "INVALID_PFZ_RESPONSE",
+                                    "message": "INCOIS PFZ response was invalid",
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        503: {
+            "description": "INCOIS was unavailable with no cached fallback",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "SOURCE_UNAVAILABLE",
+                            "message": "INCOIS PFZ source unavailable",
+                        }
+                    }
+                }
+            },
+        },
+    },
+)
+async def get_pfz_snapshot(request: Request) -> PFZSnapshot:
+    try:
+        return await request.app.state.pfz_snapshot_service.get_snapshot()
+    except NoSectorsDiscoveredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "NO_SECTORS_DISCOVERED",
+                "message": "INCOIS returned no discoverable PFZ sectors",
+            },
+        ) from exc
+    except PFZSourceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "SOURCE_UNAVAILABLE",
+                "message": "INCOIS PFZ source unavailable",
+            },
+        ) from exc
+    except PFZParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "INVALID_PFZ_RESPONSE",
+                "message": "INCOIS PFZ response was invalid",
+            },
         ) from exc

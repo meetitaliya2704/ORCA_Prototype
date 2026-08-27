@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     http_retry_attempts: int = 3
 
     incois_base_url: str = "https://incois.gov.in/MarineFisheries"
-    pfz_sector_codes: str = "SEC001,SEC002"
-    pfz_session_attempts: int = 2
+    pfz_fetch_concurrency: int = Field(default=4, ge=1, le=20)
+    pfz_cache_ttl_seconds: int = Field(default=1800, ge=1, le=86400)
+    pfz_stale_ttl_seconds: int = Field(default=86400, ge=1, le=604800)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -35,13 +36,14 @@ class Settings(BaseSettings):
             )
         return self
 
-    @property
-    def configured_pfz_sectors(self) -> tuple[str, ...]:
-        return tuple(
-            sector.strip().upper()
-            for sector in self.pfz_sector_codes.split(",")
-            if sector.strip()
-        )
+    @model_validator(mode="after")
+    def pfz_cache_windows_are_ordered(self) -> "Settings":
+        if self.pfz_stale_ttl_seconds < self.pfz_cache_ttl_seconds:
+            raise ValueError(
+                "PFZ_STALE_TTL_SECONDS must be greater than or equal to "
+                "PFZ_CACHE_TTL_SECONDS"
+            )
+        return self
 
 
 @lru_cache
