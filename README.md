@@ -43,7 +43,8 @@ REDIS_URL=redis://localhost:6379/0
 
 - Versioned FastAPI routes and typed Pydantic responses.
 - Shared asynchronous HTTPX infrastructure with timeouts and bounded retries.
-- Deterministic demonstration sources for SST, waves, and wind.
+- Deterministic demonstration sources used when optional real adapters are
+  disabled; wind remains demonstration data.
 - Concurrent marine-source execution with partial-failure results.
 - In-memory TTL caching by default and optional Redis caching.
 - An offline-tested INCOIS PFZ single-sector preview using a fresh session.
@@ -57,6 +58,8 @@ REDIS_URL=redis://localhost:6379/0
   bearing, eight-point compass direction, and an embedded GeoJSON Feature.
 - Optional real Copernicus Marine SST retrieval with nearest-valid-ocean-cell
   selection, Kelvin-to-Celsius conversion, and source-specific caching.
+- Optional real Copernicus Marine total-wave analysis and forecast retrieval,
+  including official cycle metadata and bounded coastal fallback.
 - A demonstration WebSocket ingestion-progress stream.
 - Separate demonstration and PFZ command-line ingestion jobs.
 
@@ -65,6 +68,7 @@ Current endpoints:
 - `GET /v1/health`
 - `GET /v1/marine/conditions?latitude=20.5&longitude=72.9`
 - `GET /v1/marine/sst?latitude=18.025&longitude=70.525&at=2026-08-27T00:00:00Z`
+- `GET /v1/marine/waves?latitude=18.025&longitude=70.525&at=2026-08-29T00:00:00Z`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
 - `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
@@ -151,7 +155,7 @@ python -m pip install -e ".[copernicus]"
 Configure a local Copernicus Marine login, then set
 `COPERNICUS_SST_ENABLED=true`. Never commit credentials. With the integration
 disabled, `/v1/marine/conditions` continues to use the clearly labelled demo
-SST source; waves and wind remain demo sources in either mode.
+SST source. Real waves are controlled independently, and wind remains demo.
 
 `GET /v1/marine/sst` accepts decimal `latitude`, `longitude`, and an optional
 timezone-aware `at`. It loads only a small spatial/time subset, chooses the
@@ -174,6 +178,46 @@ Errors use the standard envelope with `404 NO_VALID_SST`,
 `SST_AUTHENTICATION_FAILED`, and `SST_SOURCE_NOT_CONFIGURED`. Invalid
 coordinates or timezone-naive timestamps return `422`.
 
+## Copernicus Marine waves
+
+The optional wave adapter uses product
+`GLOBAL_ANALYSISFORECAST_WAV_001_027`, dataset
+`cmems_mod_glo_wav_anfc_0.083deg_PT3H-i`, version `202411`, and the total
+combined sea-state variables `VHM0`, `VTM02`, and `VMDR`. `VMDR` is explicitly
+the direction waves come **from**. This is numerical Météo-France MFWAM model
+data, not a direct observation and not a safety assessment.
+
+Set `COPERNICUS_WAVES_ENABLED=true` after installing `.[copernicus]` and
+configuring a local Copernicus Marine login. When disabled, the conditions
+endpoint retains demo waves. When enabled, a failed real source is reported as
+unavailable; ORCA never silently replaces it with demo data.
+
+`GET /v1/marine/waves` accepts decimal coordinates and an optional
+timezone-aware `at`. ORCA resolves and caches the latest official forecast
+cycle from original-file metadata using a dry run that downloads no original
+files. It then retrieves a bounded ARCO spatial/time subset with
+`open_dataset()`. Analysis requests select the latest timestamp not later than
+`at`; forecast requests select the first timestamp at or after `at`, subject to
+the configured three-hour tolerance and ten-day product horizon.
+
+All three Toolbox values are already decoded and are never scaled twice. A
+candidate must contain finite height, period, and direction values. Selection
+uses full-precision Haversine distance within the configured radius, while
+response values are rounded only for presentation. Coastal land cells may
+therefore fall back to `quality="nearest_valid_ocean_cell"`.
+
+Wave cache keys include the dataset, all three variables, coordinates
+normalized to six decimal places, and the requested three-hour UTC bucket.
+Matching stale data can be returned after provider failure. Cycle metadata is
+cached independently, and unresolved cycle metadata produces null reference
+and lead fields plus an explicit warning—never fabricated forecast metadata.
+
+Wave errors use `404 NO_VALID_WAVE_DATA`,
+`404 NO_WAVE_TIME_AVAILABLE`, `502 INVALID_WAVE_RESPONSE`, and the typed 503
+codes `WAVE_SOURCE_NOT_CONFIGURED`, `WAVE_AUTHENTICATION_FAILED`, and
+`WAVE_SOURCE_UNAVAILABLE`. Invalid coordinates or timezone-naive timestamps
+return `422`.
+
 ## Setup
 
 Python 3.11 or newer is required.
@@ -185,9 +229,9 @@ python -m pip install -e ".[test]"
 Copy-Item .env.example .env
 ```
 
-The default install does not include Copernicus Marine. To enable real SST,
-install `.[copernicus]`, configure a local Copernicus Marine login, and use the
-safe settings documented in `.env.example`.
+The default install does not include Copernicus Marine. To enable real SST or
+waves, install `.[copernicus]`, configure a local Copernicus Marine login, and
+use the safe settings documented in `.env.example`.
 
 Run the API:
 
@@ -251,6 +295,9 @@ python -m app.jobs.ingest_pfz
   normalization, nearest-valid-ocean-cell handling, caching, and offline tests.
 - Real SST replaces demo SST only when explicitly enabled; partial-failure
   behavior remains intact.
+- D2-0 and D2-1 complete: the global MFWAM wave product was validated and
+  integrated with typed analysis/forecast metadata, spatial fallback, caching,
+  and partial-failure behavior.
 
 ### Checkpoint E — combined conditions and safety
 

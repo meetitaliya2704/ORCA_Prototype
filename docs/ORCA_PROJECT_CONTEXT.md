@@ -24,7 +24,8 @@ ORCA is decision support, not certified navigation advice.
 
 ## Current implementation status
 
-- Checkpoints A, B, C, D0, and D1 are complete with 128 offline tests passing.
+- Checkpoints A, B, C, D0, D1, D2-0, and D2-1 are complete with 187 offline
+  tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -37,6 +38,9 @@ ORCA is decision support, not certified navigation advice.
   D1 integrates it behind an optional dependency and explicit feature flag.
 - Ordinary startup and tests still require neither Copernicus Marine nor
   provider credentials.
+- The verified Copernicus global MFWAM total-wave analysis/forecast source is
+  integrated behind a separate optional feature flag, with cycle-aware time
+  selection and bounded coastal fallback.
 
 ## 3. Current repository baseline
 
@@ -314,6 +318,39 @@ Planned source categories:
   `COPERNICUS_SST_ENABLED=true`; it never silently substitutes demo SST after
   a real-provider failure.
 
+### Implemented Copernicus Marine wave source
+
+- Product ID: `GLOBAL_ANALYSISFORECAST_WAV_001_027`.
+- Dataset ID: `cmems_mod_glo_wav_anfc_0.083deg_PT3H-i`, version `202411`.
+- Total sea-state variables: `VHM0` significant height in metres, `VTM02`
+  mean period in seconds, and `VMDR` mean direction in degrees **from**.
+- Data type: Météo-France MFWAM numerical-model analysis and forecast, not an
+  observation and not a safety decision.
+- Provider access: bounded `open_dataset()` calls execute through
+  `asyncio.to_thread()`. All values are loaded and the dataset is closed in the
+  worker thread. Toolbox-decoded values are never scaled twice.
+- Cycle resolution: a separately injected resolver uses metadata-only
+  `get(..., dry_run=True)` original-file inventory and parses the official
+  reference embedded in filenames. Successful and unavailable resolutions are
+  cached independently from wave samples.
+- Time policy: analysis requests select the latest timestamp not later than
+  the requested time; forecast requests select the first timestamp at or after
+  it. The match must be within the configured three-hour tolerance, and a
+  forecast cannot exceed the reference plus ten days.
+- Missing cycle metadata never blocks otherwise valid wave values. Reference
+  and lead fields become null, classification becomes `unknown`, and a warning
+  is returned.
+- Spatial policy: height, period, and direction must all be finite. The nearest
+  complete cell within the bounded radius is chosen using full-precision
+  Haversine distance and coordinate tie-breaks. Static bathymetry is not
+  queried during normal requests.
+- Cache keys include dataset, variables, normalized coordinates, and requested
+  three-hour UTC bucket. Fresh, refreshed, matching stale, and process-local
+  single-flight behavior are implemented.
+- `/v1/marine/conditions` uses real waves only when
+  `COPERNICUS_WAVES_ENABLED=true`; otherwise it retains the labelled demo wave
+  source. Real-provider failure is never replaced by demo data.
+
 Each adapter should return a normalized structure containing:
 
 - Source name and URL/product identifier.
@@ -408,8 +445,16 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 - D1 complete: optional official Toolbox integration, typed `/v1/marine/sst`,
   nearest-valid-ocean-cell handling, cache-aside/stale behavior, and combined
   conditions integration are implemented.
-- Demo SST remains the default when the real adapter is disabled. Demo waves
-  and wind remain until later source checkpoints.
+- Demo SST and waves remain the defaults when their respective real adapters
+  are disabled. Wind remains demo data.
+- D2-0 complete: the official global MFWAM dataset, variables, cycle semantics,
+  open-ocean values, and coastal missing-cell behavior were validated.
+- D2-1 complete: typed `/v1/marine/waves`, official cycle resolution,
+  analysis/forecast selection, bounded nearest-valid-cell behavior,
+  cache-aside/stale handling, and combined-condition integration are
+  implemented.
+- Demo waves remain only when the real wave adapter is disabled. Wind remains
+  demo data.
 
 ### Checkpoint E — combined conditions and safety
 
@@ -437,5 +482,5 @@ The next milestone is complete when:
 - Provider failure returns stale data clearly when available, otherwise a typed error.
 - All normal tests pass without internet access.
 
-Checkpoint D1 completes the first real marine adapter. Further source or safety
+Checkpoint D2-1 completes the first real wave adapter. Further source or safety
 work requires a separately approved checkpoint.

@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from app.api.query_params import LatitudeQuery, LongitudeQuery
 from app.clients.incois_pfz import PFZSourceUnavailableError
 from app.parsers.pfz_html import NoSectorsDiscoveredError, PFZParseError
 from app.schemas.pfz import (
@@ -192,8 +193,8 @@ async def get_pfz_snapshot(request: Request) -> PFZSnapshot:
 )
 async def get_nearest_pfz(
     request: Request,
-    latitude: Annotated[float, Query(ge=-90.0, le=90.0)],
-    longitude: Annotated[float, Query(ge=-180.0, le=180.0)],
+    latitude: LatitudeQuery,
+    longitude: LongitudeQuery,
     at: Annotated[TimezoneAwareUTCDateTime | None, Query()] = None,
 ) -> NearestPFZResponse:
     try:

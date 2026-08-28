@@ -9,12 +9,23 @@ from app.clients.copernicus_sst import (
     SSTSourceNotConfiguredError,
     SSTSourceUnavailableError,
 )
+from app.clients.copernicus_waves import (
+    InvalidWaveResponseError,
+    WaveAuthenticationError,
+    WaveSourceNotConfiguredError,
+    WaveSourceUnavailableError,
+)
 from app.clients.demo import DemoMarineSource
 from app.main import app
-from app.schemas.marine import SSTResponse
+from app.schemas.marine import SSTResponse, WaveResponse
 from app.services.cache import MemoryJsonCache
 from app.services.marine import MarineConditionsService
 from app.services.sst import CopernicusSSTMarineSource, NoValidSSTError
+from app.services.waves import (
+    CopernicusWaveMarineSource,
+    NoValidWaveDataError,
+    NoWaveTimeAvailableError,
+)
 
 
 def sst_response(
@@ -58,8 +69,169 @@ class FakeSSTService:
         return self.result
 
 
+def wave_response() -> WaveResponse:
+    return WaveResponse.model_validate(
+        {
+            "requested_location": {"latitude": 18.025, "longitude": 70.525},
+            "sampled_location": {"latitude": 18.0, "longitude": 70.5},
+            "sample_distance_km": 3.8,
+            "requested_time": "2026-08-29T00:00:00Z",
+            "valid_time": "2026-08-29T00:00:00Z",
+            "forecast_reference_time": "2026-08-28T00:00:00Z",
+            "forecast_lead_hours": 24,
+            "time_classification": "forecast",
+            "significant_wave_height": {"value": 2.79, "unit": "m"},
+            "mean_wave_period": {"value": 6.07, "unit": "s"},
+            "mean_wave_direction_from": {"value": 247.85, "unit": "degree"},
+            "retrieved_at": "2026-08-28T17:36:51Z",
+            "source": {
+                "dataset_id": "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i",
+                "dataset_version": "202411",
+            },
+            "quality": "nearest_valid_ocean_cell",
+            "cache_status": "refreshed",
+        }
+    )
+
+
+class FakeWaveService:
+    def __init__(self, result=None, error: Exception | None = None) -> None:
+        self.result = result or wave_response()
+        self.error = error
+        self.received = None
+
+    async def get_waves(self, **kwargs):
+        self.received = kwargs
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+class FakeConditionsService:
+    def __init__(self) -> None:
+        self.received = None
+
+    async def get_conditions(self, latitude: float, longitude: float):
+        self.received = {
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+        return {
+            "latitude": latitude,
+            "longitude": longitude,
+            "generated_at": datetime(2026, 8, 29, tzinfo=UTC),
+            "sources": {},
+        }
+
+
+def install_coordinate_service(path: str):
+    if path.endswith("/conditions"):
+        service = FakeConditionsService()
+        app.state.marine_service = service
+    elif path.endswith("/sst"):
+        service = FakeSSTService()
+        app.state.sst_service = service
+    else:
+        service = FakeWaveService()
+        app.state.wave_service = service
+    return service
+
+
+MARINE_COORDINATE_ENDPOINTS = [
+    "/v1/marine/conditions",
+    "/v1/marine/sst",
+    "/v1/marine/waves",
+]
+
+
+@pytest.mark.parametrize("path", MARINE_COORDINATE_ENDPOINTS)
+@pytest.mark.parametrize(
+    ("latitude", "longitude"),
+    [
+        (18.025, 70.525),
+        (-18.025, -70.525),
+        (18, 70),
+        (-90.0, -180.0),
+        (90.0, 180.0),
+    ],
+)
+def test_all_marine_endpoints_accept_float_coordinates_without_precision_loss(
+    path: str,
+    latitude: float,
+    longitude: float,
+) -> None:
+    with TestClient(app) as client:
+        service = install_coordinate_service(path)
+        response = client.get(
+            path,
+            params={"latitude": latitude, "longitude": longitude},
+        )
+
+    assert response.status_code == 200
+    assert service.received["latitude"] == float(latitude)
+    assert service.received["longitude"] == float(longitude)
+    assert isinstance(service.received["latitude"], float)
+    assert isinstance(service.received["longitude"], float)
+
+
+@pytest.mark.parametrize("path", MARINE_COORDINATE_ENDPOINTS)
+@pytest.mark.parametrize("latitude", [-90.0001, 90.0001])
+def test_all_marine_endpoints_reject_latitude_outside_range(
+    path: str,
+    latitude: float,
+) -> None:
+    with TestClient(app) as client:
+        install_coordinate_service(path)
+        response = client.get(
+            path,
+            params={"latitude": latitude, "longitude": 0},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("path", MARINE_COORDINATE_ENDPOINTS)
+@pytest.mark.parametrize("longitude", [-180.0001, 180.0001])
+def test_all_marine_endpoints_reject_longitude_outside_range(
+    path: str,
+    longitude: float,
+) -> None:
+    with TestClient(app) as client:
+        install_coordinate_service(path)
+        response = client.get(
+            path,
+            params={"latitude": 0, "longitude": longitude},
+        )
+
+    assert response.status_code == 422
+
+
+def test_all_coordinate_query_parameters_are_openapi_numbers() -> None:
+    schema = app.openapi()
+    for path in [*MARINE_COORDINATE_ENDPOINTS, "/v1/pfz/nearest"]:
+        operation = schema["paths"][path]["get"]
+        parameters = {
+            parameter["name"]: parameter["schema"]
+            for parameter in operation["parameters"]
+        }
+        for name in ("latitude", "longitude"):
+            assert parameters[name]["type"] == "number"
+            assert parameters[name]["format"] == "double"
+            assert "decimal degrees" in parameters[name]["description"]
+
+
 def test_marine_conditions_and_cache() -> None:
     with TestClient(app) as client:
+        app.state.marine_service = MarineConditionsService(
+            client=app.state.marine_service.client,
+            cache=MemoryJsonCache(),
+            sources=[
+                DemoMarineSource("sst", "SST", 29.4, "degC"),
+                DemoMarineSource("waves", "WAVE_HEIGHT", 1.6, "m"),
+                DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h"),
+            ],
+            cache_ttl=300,
+        )
         first = client.get(
             "/v1/marine/conditions",
             params={"latitude": 20.5, "longitude": 72.9},
@@ -72,6 +244,7 @@ def test_marine_conditions_and_cache() -> None:
     assert first.status_code == 200
     assert first.json()["sources"]["sst"]["status"] == "fresh"
     assert first.json()["sources"]["sst"]["data"]["quality"] == "demo"
+    assert first.json()["sources"]["waves"]["data"]["quality"] == "demo"
     assert second.json()["sources"]["sst"]["status"] == "cached"
 
 
@@ -208,4 +381,124 @@ def test_conditions_preserves_partial_results_when_real_sst_fails() -> None:
         "cached": False,
     }
     assert response.json()["sources"]["waves"]["status"] == "fresh"
+    assert response.json()["sources"]["wind"]["status"] == "fresh"
+
+
+def test_typed_waves_endpoint_preserves_direction_from_and_time() -> None:
+    service = FakeWaveService()
+    with TestClient(app) as client:
+        app.state.wave_service = service
+        response = client.get(
+            "/v1/marine/waves",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-29T00:00:00Z",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mean_wave_direction_from"] == {
+        "value": 247.85,
+        "unit": "degree",
+    }
+    assert body["forecast_lead_hours"] == 24
+    assert service.received["at"] == datetime(2026, 8, 29, tzinfo=UTC)
+
+
+def test_waves_endpoint_rejects_naive_time_and_invalid_coordinates() -> None:
+    with TestClient(app) as client:
+        naive = client.get(
+            "/v1/marine/waves",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-29T00:00:00",
+            },
+        )
+        invalid = client.get(
+            "/v1/marine/waves",
+            params={"latitude": 91, "longitude": 181},
+        )
+
+    assert naive.status_code == 422
+    assert invalid.status_code == 422
+
+
+def test_disabled_waves_endpoint_is_not_configured() -> None:
+    with TestClient(app) as client:
+        app.state.wave_service = None
+        response = client.get(
+            "/v1/marine/waves",
+            params={"latitude": 18.025, "longitude": 70.525},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "WAVE_SOURCE_NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "code"),
+    [
+        (NoValidWaveDataError("private"), 404, "NO_VALID_WAVE_DATA"),
+        (NoWaveTimeAvailableError("private"), 404, "NO_WAVE_TIME_AVAILABLE"),
+        (InvalidWaveResponseError("private"), 502, "INVALID_WAVE_RESPONSE"),
+        (WaveSourceUnavailableError("private"), 503, "WAVE_SOURCE_UNAVAILABLE"),
+        (WaveAuthenticationError("private"), 503, "WAVE_AUTHENTICATION_FAILED"),
+        (
+            WaveSourceNotConfiguredError("private"),
+            503,
+            "WAVE_SOURCE_NOT_CONFIGURED",
+        ),
+    ],
+)
+def test_waves_endpoint_maps_safe_typed_errors(
+    error: Exception,
+    status_code: int,
+    code: str,
+) -> None:
+    with TestClient(app) as client:
+        app.state.wave_service = FakeWaveService(error=error)
+        response = client.get(
+            "/v1/marine/waves",
+            params={"latitude": 18.025, "longitude": 70.525},
+        )
+
+    assert response.status_code == status_code
+    assert response.json()["detail"]["code"] == code
+    assert "private" not in response.json()["detail"]["message"]
+
+
+def test_conditions_preserves_partial_results_when_real_waves_fail() -> None:
+    with TestClient(app) as client:
+        app.state.marine_service = MarineConditionsService(
+            client=app.state.marine_service.client,
+            cache=MemoryJsonCache(),
+            sources=[
+                DemoMarineSource("sst", "SST", 29.4, "degC"),
+                CopernicusWaveMarineSource(
+                    FakeWaveService(
+                        error=WaveSourceUnavailableError("private detail")
+                    )
+                ),
+                DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h"),
+            ],
+            cache_ttl=300,
+        )
+        response = client.get(
+            "/v1/marine/conditions",
+            params={"latitude": 18.025, "longitude": 70.525},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["sources"]["waves"] == {
+        "source": "Copernicus Marine",
+        "status": "unavailable",
+        "data": None,
+        "error": "WAVE_SOURCE_UNAVAILABLE",
+        "fetched_at": None,
+        "cached": False,
+    }
+    assert response.json()["sources"]["sst"]["data"]["quality"] == "demo"
     assert response.json()["sources"]["wind"]["status"] == "fresh"

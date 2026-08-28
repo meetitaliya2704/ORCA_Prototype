@@ -89,3 +89,81 @@ class SSTResponse(BaseModel):
             if value.tzinfo is None or value.utcoffset() is None:
                 raise ValueError(f"{field_name} must be timezone-aware")
         return self
+
+
+class WaveCacheStatus(StrEnum):
+    FRESH = "fresh"
+    REFRESHED = "refreshed"
+    STALE = "stale"
+
+
+class WaveQuality(StrEnum):
+    EXACT_GRID_CELL = "exact_grid_cell"
+    NEAREST_VALID_OCEAN_CELL = "nearest_valid_ocean_cell"
+
+
+class WaveTimeClassification(StrEnum):
+    ANALYSIS = "analysis"
+    FORECAST = "forecast"
+    UNKNOWN = "unknown"
+
+
+class WaveValue(BaseModel):
+    value: float
+    unit: Literal["m", "s", "degree"]
+
+
+class WaveSourceMetadata(BaseModel):
+    name: Literal["Copernicus Marine"] = "Copernicus Marine"
+    product_id: Literal["GLOBAL_ANALYSISFORECAST_WAV_001_027"] = (
+        "GLOBAL_ANALYSISFORECAST_WAV_001_027"
+    )
+    dataset_id: str = Field(min_length=1)
+    dataset_version: str = Field(min_length=1)
+    model: Literal["Météo-France MFWAM"] = "Météo-France MFWAM"
+    data_type: Literal["numerical_model_analysis_forecast"] = (
+        "numerical_model_analysis_forecast"
+    )
+
+
+class WaveResponse(BaseModel):
+    requested_location: SSTLocation
+    sampled_location: SSTLocation
+    sample_distance_km: float = Field(ge=0)
+    requested_time: datetime
+    valid_time: datetime
+    forecast_reference_time: datetime | None = None
+    forecast_lead_hours: float | None = None
+    time_classification: WaveTimeClassification
+    significant_wave_height: WaveValue
+    mean_wave_period: WaveValue
+    mean_wave_direction_from: WaveValue
+    retrieved_at: datetime
+    source: WaveSourceMetadata
+    quality: WaveQuality
+    cache_status: WaveCacheStatus
+    warnings: list[str] = Field(default_factory=list)
+    notice: Literal[
+        "Model-based decision-support data; verify official marine advisories."
+    ] = "Model-based decision-support data; verify official marine advisories."
+
+    @model_validator(mode="after")
+    def wave_timestamps_are_timezone_aware(self) -> "WaveResponse":
+        values = [
+            self.requested_time,
+            self.valid_time,
+            self.retrieved_at,
+        ]
+        if self.forecast_reference_time is not None:
+            values.append(self.forecast_reference_time)
+        if any(value.tzinfo is None or value.utcoffset() is None for value in values):
+            raise ValueError("wave timestamps must be timezone-aware")
+        if (
+            self.time_classification == WaveTimeClassification.UNKNOWN
+            and (
+                self.forecast_reference_time is not None
+                or self.forecast_lead_hours is not None
+            )
+        ):
+            raise ValueError("unknown wave time classification cannot include forecast metadata")
+        return self

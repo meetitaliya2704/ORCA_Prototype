@@ -7,6 +7,11 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.clients.demo import DemoMarineSource
 from app.clients.copernicus_sst import CopernicusMarineSSTProvider
+from app.clients.copernicus_waves import (
+    COPERNICUS_WAVE_DATASET_VERSION,
+    CopernicusMarineWaveCycleResolver,
+    CopernicusMarineWaveProvider,
+)
 from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
 from app.services.cache import MemoryJsonCache, RedisJsonCache
@@ -17,6 +22,7 @@ from app.services.pfz import (
     PFZSnapshotService,
 )
 from app.services.sst import CopernicusSSTMarineSource, CopernicusSSTService
+from app.services.waves import CopernicusWaveMarineSource, CopernicusWaveService
 
 
 settings = get_settings()
@@ -56,9 +62,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         sst_source = DemoMarineSource("sst", "SST", 29.4, "degC")
         app.state.sst_service = None
 
+    if settings.copernicus_waves_enabled:
+        wave_service = CopernicusWaveService(
+            provider=CopernicusMarineWaveProvider(),
+            cycle_resolver=CopernicusMarineWaveCycleResolver(),
+            cache=cache,
+            dataset_id=settings.copernicus_waves_dataset_id,
+            dataset_version=COPERNICUS_WAVE_DATASET_VERSION,
+            height_variable=settings.copernicus_waves_height_variable,
+            period_variable=settings.copernicus_waves_period_variable,
+            direction_variable=settings.copernicus_waves_direction_variable,
+            search_radius_km=settings.copernicus_waves_search_radius_km,
+            time_tolerance_hours=(
+                settings.copernicus_waves_time_tolerance_hours
+            ),
+            fresh_ttl_seconds=settings.copernicus_waves_cache_ttl_seconds,
+            stale_ttl_seconds=settings.copernicus_waves_stale_ttl_seconds,
+            cycle_ttl_seconds=(
+                settings.copernicus_waves_cycle_cache_ttl_seconds
+            ),
+        )
+        wave_source = CopernicusWaveMarineSource(wave_service)
+        app.state.wave_service = wave_service
+    else:
+        wave_source = DemoMarineSource("waves", "WAVE_HEIGHT", 1.6, "m")
+        app.state.wave_service = None
+
     sources = [
         sst_source,
-        DemoMarineSource("waves", "WAVE_HEIGHT", 1.6, "m"),
+        wave_source,
         DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h"),
     ]
 

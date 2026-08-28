@@ -278,9 +278,11 @@ def test_pfz_nearest_openapi_coordinates_are_numbers() -> None:
     }
 
     assert schemas["latitude"]["type"] == "number"
+    assert schemas["latitude"]["format"] == "double"
     assert schemas["latitude"]["minimum"] == -90.0
     assert schemas["latitude"]["maximum"] == 90.0
     assert schemas["longitude"]["type"] == "number"
+    assert schemas["longitude"]["format"] == "double"
     assert schemas["longitude"]["minimum"] == -180.0
     assert schemas["longitude"]["maximum"] == 180.0
 

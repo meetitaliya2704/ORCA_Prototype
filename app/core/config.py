@@ -41,6 +41,32 @@ class Settings(BaseSettings):
         le=2592000,
     )
 
+    copernicus_waves_enabled: bool = False
+    copernicus_waves_dataset_id: str = Field(
+        default="cmems_mod_glo_wav_anfc_0.083deg_PT3H-i",
+        min_length=1,
+    )
+    copernicus_waves_height_variable: str = Field(default="VHM0", min_length=1)
+    copernicus_waves_period_variable: str = Field(default="VTM02", min_length=1)
+    copernicus_waves_direction_variable: str = Field(default="VMDR", min_length=1)
+    copernicus_waves_search_radius_km: float = Field(default=50.0, gt=0, le=500)
+    copernicus_waves_time_tolerance_hours: int = Field(default=3, ge=1, le=24)
+    copernicus_waves_cache_ttl_seconds: int = Field(
+        default=3600,
+        ge=1,
+        le=604800,
+    )
+    copernicus_waves_stale_ttl_seconds: int = Field(
+        default=21600,
+        ge=1,
+        le=2592000,
+    )
+    copernicus_waves_cycle_cache_ttl_seconds: int = Field(
+        default=3600,
+        ge=1,
+        le=86400,
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -73,6 +99,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "COPERNICUS_SST_STALE_TTL_SECONDS must be greater than or "
                 "equal to COPERNICUS_SST_CACHE_TTL_SECONDS"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def wave_cache_windows_are_ordered(self) -> "Settings":
+        if (
+            self.copernicus_waves_stale_ttl_seconds
+            < self.copernicus_waves_cache_ttl_seconds
+        ):
+            raise ValueError(
+                "COPERNICUS_WAVES_STALE_TTL_SECONDS must be greater than or "
+                "equal to COPERNICUS_WAVES_CACHE_TTL_SECONDS"
             )
         return self
 

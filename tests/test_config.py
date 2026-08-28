@@ -23,6 +23,16 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.copernicus_sst_variable == "analysed_sst"
     assert settings.copernicus_sst_search_radius_km == 50
     assert settings.copernicus_sst_lookback_days == 3
+    assert settings.copernicus_waves_enabled is False
+    assert (
+        settings.copernicus_waves_dataset_id
+        == "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i"
+    )
+    assert settings.copernicus_waves_height_variable == "VHM0"
+    assert settings.copernicus_waves_period_variable == "VTM02"
+    assert settings.copernicus_waves_direction_variable == "VMDR"
+    assert settings.copernicus_waves_search_radius_km == 50
+    assert settings.copernicus_waves_time_tolerance_hours == 3
 
 
 def test_enabled_redis_requires_a_url() -> None:
@@ -79,3 +89,30 @@ def test_sst_cache_ttls_must_be_ordered() -> None:
 def test_sst_search_radius_is_bounded(radius: float) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, copernicus_sst_search_radius_km=radius)
+
+
+def test_wave_cache_ttls_must_be_ordered() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="COPERNICUS_WAVES_STALE_TTL_SECONDS must be greater",
+    ):
+        Settings(
+            _env_file=None,
+            copernicus_waves_cache_ttl_seconds=60,
+            copernicus_waves_stale_ttl_seconds=30,
+        )
+
+
+@pytest.mark.parametrize("radius", [0, 501])
+def test_wave_search_radius_is_bounded(radius: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, copernicus_waves_search_radius_km=radius)
+
+
+@pytest.mark.parametrize("tolerance", [0, 25])
+def test_wave_time_tolerance_is_bounded(tolerance: int) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            copernicus_waves_time_tolerance_hours=tolerance,
+        )
