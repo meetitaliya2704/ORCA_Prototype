@@ -29,8 +29,12 @@ class MarineConditionsService:
         self,
         latitude: float,
         longitude: float,
+        at: datetime | None = None,
     ) -> MarineConditionsResponse:
-        cache_key = f"conditions:{latitude:.3f}:{longitude:.3f}"
+        time_bucket = at.astimezone(UTC).date().isoformat() if at else "current"
+        cache_key = (
+            f"conditions:{latitude:.6f}:{longitude:.6f}:{time_bucket}"
+        )
         cached = await self.cache.get(cache_key)
 
         if cached is not None:
@@ -41,7 +45,7 @@ class MarineConditionsService:
             return response
 
         tasks = [
-            source.fetch(self.client, latitude, longitude)
+            source.fetch(self.client, latitude, longitude, at)
             for source in self.sources
         ]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)

@@ -11,6 +11,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+copernicus = [
+  "copernicusmarine==2.4.1",
+]
 redis = [
   "redis>=5.2",
 ]

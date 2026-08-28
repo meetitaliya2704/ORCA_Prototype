@@ -15,6 +15,14 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.pfz_fetch_concurrency == 4
     assert settings.pfz_cache_ttl_seconds == 1800
     assert settings.pfz_stale_ttl_seconds == 86400
+    assert settings.copernicus_sst_enabled is False
+    assert (
+        settings.copernicus_sst_dataset_id
+        == "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2"
+    )
+    assert settings.copernicus_sst_variable == "analysed_sst"
+    assert settings.copernicus_sst_search_radius_km == 50
+    assert settings.copernicus_sst_lookback_days == 3
 
 
 def test_enabled_redis_requires_a_url() -> None:
@@ -53,3 +61,21 @@ def test_pfz_cache_ttls_must_be_ordered() -> None:
 def test_pfz_fetch_concurrency_is_bounded(concurrency: int) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, pfz_fetch_concurrency=concurrency)
+
+
+def test_sst_cache_ttls_must_be_ordered() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="COPERNICUS_SST_STALE_TTL_SECONDS must be greater",
+    ):
+        Settings(
+            _env_file=None,
+            copernicus_sst_cache_ttl_seconds=60,
+            copernicus_sst_stale_ttl_seconds=30,
+        )
+
+
+@pytest.mark.parametrize("radius", [0, 501])
+def test_sst_search_radius_is_bounded(radius: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, copernicus_sst_search_radius_km=radius)

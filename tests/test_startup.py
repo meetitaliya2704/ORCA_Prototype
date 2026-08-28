@@ -10,13 +10,18 @@ import asyncio
 import importlib.abc
 import sys
 
-class BlockRedis(importlib.abc.MetaPathFinder):
+class BlockOptionalPackages(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == "redis" or fullname.startswith("redis."):
-            raise ModuleNotFoundError("redis intentionally unavailable")
+        if (
+            fullname == "redis"
+            or fullname.startswith("redis.")
+            or fullname == "copernicusmarine"
+            or fullname.startswith("copernicusmarine.")
+        ):
+            raise ModuleNotFoundError(f"{fullname} intentionally unavailable")
         return None
 
-sys.meta_path.insert(0, BlockRedis())
+sys.meta_path.insert(0, BlockOptionalPackages())
 
 from app.main import app
 
@@ -25,6 +30,7 @@ async def verify_startup():
         cache = app.state.marine_service.cache
         assert type(cache).__name__ == "MemoryJsonCache"
         assert "redis" not in sys.modules
+        assert "copernicusmarine" not in sys.modules
 
 asyncio.run(verify_startup())
 """
@@ -32,6 +38,52 @@ asyncio.run(verify_startup())
     environment.pop("DATABASE_URL", None)
     environment.pop("REDIS_URL", None)
     environment["REDIS_ENABLED"] = "false"
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_enabled_sst_missing_optional_package_is_controlled(tmp_path: Path) -> None:
+    script = r"""
+import importlib.abc
+import sys
+
+class BlockCopernicus(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "copernicusmarine" or fullname.startswith("copernicusmarine."):
+            raise ModuleNotFoundError("copernicusmarine intentionally unavailable")
+        return None
+
+sys.meta_path.insert(0, BlockCopernicus())
+
+from fastapi.testclient import TestClient
+from app.main import app
+
+with TestClient(app) as client:
+    response = client.get(
+        "/v1/marine/sst",
+        params={
+            "latitude": 18.025,
+            "longitude": 70.525,
+            "at": "2026-08-27T00:00:00Z",
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "SST_SOURCE_NOT_CONFIGURED"
+"""
+    environment = os.environ.copy()
+    environment["COPERNICUS_SST_ENABLED"] = "true"
+    environment["REDIS_ENABLED"] = "false"
+    environment.pop("COPERNICUSMARINE_SERVICE_USERNAME", None)
+    environment.pop("COPERNICUSMARINE_SERVICE_PASSWORD", None)
 
     result = subprocess.run(
         [sys.executable, "-c", script],

@@ -20,8 +20,9 @@ class DemoMarineSource:
         client: httpx.AsyncClient,
         latitude: float,
         longitude: float,
+        at: datetime | None = None,
     ) -> SourceResult:
-        del client
+        del client, at
         await asyncio.sleep(0.01)
 
         return SourceResult(
@@ -37,4 +38,3 @@ class DemoMarineSource:
             },
             fetched_at=datetime.now(UTC),
         )
-

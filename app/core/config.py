@@ -22,6 +22,25 @@ class Settings(BaseSettings):
     pfz_cache_ttl_seconds: int = Field(default=1800, ge=1, le=86400)
     pfz_stale_ttl_seconds: int = Field(default=86400, ge=1, le=604800)
 
+    copernicus_sst_enabled: bool = False
+    copernicus_sst_dataset_id: str = Field(
+        default="METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2",
+        min_length=1,
+    )
+    copernicus_sst_variable: str = Field(default="analysed_sst", min_length=1)
+    copernicus_sst_search_radius_km: float = Field(default=50.0, gt=0, le=500)
+    copernicus_sst_lookback_days: int = Field(default=3, ge=1, le=30)
+    copernicus_sst_cache_ttl_seconds: int = Field(
+        default=21600,
+        ge=1,
+        le=604800,
+    )
+    copernicus_sst_stale_ttl_seconds: int = Field(
+        default=86400,
+        ge=1,
+        le=2592000,
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -42,6 +61,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "PFZ_STALE_TTL_SECONDS must be greater than or equal to "
                 "PFZ_CACHE_TTL_SECONDS"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def sst_cache_windows_are_ordered(self) -> "Settings":
+        if (
+            self.copernicus_sst_stale_ttl_seconds
+            < self.copernicus_sst_cache_ttl_seconds
+        ):
+            raise ValueError(
+                "COPERNICUS_SST_STALE_TTL_SECONDS must be greater than or "
+                "equal to COPERNICUS_SST_CACHE_TTL_SECONDS"
             )
         return self
 

@@ -24,7 +24,7 @@ ORCA is decision support, not certified navigation advice.
 
 ## Current implementation status
 
-- Checkpoints A, B, and C are complete with 95 offline tests passing.
+- Checkpoints A, B, C, D0, and D1 are complete with 128 offline tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -33,7 +33,10 @@ ORCA is decision support, not certified navigation advice.
   and partial-sector results are implemented.
 - Deterministic nearest-valid-PFZ retrieval, UTC validity normalization,
   Haversine distance, bearing, compass direction, and GeoJSON are implemented.
-- Checkpoint D, the first real marine-condition adapter, is the next milestone.
+- Checkpoint D0 validated one real Copernicus Marine SST source, and Checkpoint
+  D1 integrates it behind an optional dependency and explicit feature flag.
+- Ordinary startup and tests still require neither Copernicus Marine nor
+  provider credentials.
 
 ## 3. Current repository baseline
 
@@ -288,6 +291,29 @@ Planned source categories:
 - Copernicus Marine SST, chlorophyll, waves, and currents.
 - Bhuvan or other authoritative boundary/geofence sources.
 
+### Implemented Copernicus Marine SST source
+
+- Product ID: `SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001`.
+- Dataset ID: `METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2`.
+- Variable: `analysed_sst`, decoded by the Toolbox in Kelvin.
+- Optional dependency: `copernicusmarine==2.4.1` in the `copernicus` extra.
+- Provider access: the synchronous official Python `open_dataset()` API runs
+  through `asyncio.to_thread()` and loads only a bounded spatial/time subset.
+- Time selection: latest available analysis at or before the timezone-aware
+  query time, within the configured lookback.
+- Spatial selection: nearest finite, non-fill cell within the configured
+  radius, using deterministic Haversine distance and coordinate tie-breaks.
+- Coastal behavior: when the closest requested grid cell is marked as land,
+  a nearby valid ocean cell may be returned with an explicit warning.
+- Units: decoded Kelvin is converted exactly once using
+  `Celsius = Kelvin - 273.15`.
+- Cache keys include dataset, variable, normalized requested coordinates, and
+  requested UTC analysis-date bucket. Matching stale data is eligible only
+  after provider failure.
+- `/v1/marine/conditions` uses this real source only when
+  `COPERNICUS_SST_ENABLED=true`; it never silently substitutes demo SST after
+  a real-provider failure.
+
 Each adapter should return a normalized structure containing:
 
 - Source name and URL/product identifier.
@@ -377,10 +403,13 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 
 ### Checkpoint D — first real marine-condition adapter
 
-- Next milestone.
-- Select one authoritative source and one variable.
-- Implement spatial/temporal subsetting, normalization, caching, and tests.
-- Replace one corresponding demo source without breaking partial-failure behavior.
+- D0 complete: authenticated point and coastal/land-mask behavior validated
+  against the verified Copernicus Marine dataset.
+- D1 complete: optional official Toolbox integration, typed `/v1/marine/sst`,
+  nearest-valid-ocean-cell handling, cache-aside/stale behavior, and combined
+  conditions integration are implemented.
+- Demo SST remains the default when the real adapter is disabled. Demo waves
+  and wind remain until later source checkpoints.
 
 ### Checkpoint E — combined conditions and safety
 
@@ -408,6 +437,5 @@ The next milestone is complete when:
 - Provider failure returns stale data clearly when available, otherwise a typed error.
 - All normal tests pass without internet access.
 
-The next milestone is Checkpoint D: replace one demonstration marine source
-with a real authoritative adapter while retaining normalization, caching, and
-partial-failure behavior.
+Checkpoint D1 completes the first real marine adapter. Further source or safety
+work requires a separately approved checkpoint.

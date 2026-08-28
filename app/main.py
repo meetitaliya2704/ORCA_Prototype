@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.clients.demo import DemoMarineSource
+from app.clients.copernicus_sst import CopernicusMarineSSTProvider
 from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
 from app.services.cache import MemoryJsonCache, RedisJsonCache
@@ -15,6 +16,7 @@ from app.services.pfz import (
     PFZPreviewService,
     PFZSnapshotService,
 )
+from app.services.sst import CopernicusSSTMarineSource, CopernicusSSTService
 
 
 settings = get_settings()
@@ -37,8 +39,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         cache = MemoryJsonCache()
 
+    if settings.copernicus_sst_enabled:
+        sst_service = CopernicusSSTService(
+            provider=CopernicusMarineSSTProvider(),
+            cache=cache,
+            dataset_id=settings.copernicus_sst_dataset_id,
+            variable=settings.copernicus_sst_variable,
+            search_radius_km=settings.copernicus_sst_search_radius_km,
+            lookback_days=settings.copernicus_sst_lookback_days,
+            fresh_ttl_seconds=settings.copernicus_sst_cache_ttl_seconds,
+            stale_ttl_seconds=settings.copernicus_sst_stale_ttl_seconds,
+        )
+        sst_source = CopernicusSSTMarineSource(sst_service)
+        app.state.sst_service = sst_service
+    else:
+        sst_source = DemoMarineSource("sst", "SST", 29.4, "degC")
+        app.state.sst_service = None
+
     sources = [
-        DemoMarineSource("sst", "SST", 29.4, "degC"),
+        sst_source,
         DemoMarineSource("waves", "WAVE_HEIGHT", 1.6, "m"),
         DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h"),
     ]

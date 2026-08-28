@@ -55,6 +55,8 @@ REDIS_URL=redis://localhost:6379/0
   malformed-row warnings.
 - Deterministic nearest-valid-PFZ selection with Haversine distance, initial
   bearing, eight-point compass direction, and an embedded GeoJSON Feature.
+- Optional real Copernicus Marine SST retrieval with nearest-valid-ocean-cell
+  selection, Kelvin-to-Celsius conversion, and source-specific caching.
 - A demonstration WebSocket ingestion-progress stream.
 - Separate demonstration and PFZ command-line ingestion jobs.
 
@@ -62,6 +64,7 @@ Current endpoints:
 
 - `GET /v1/health`
 - `GET /v1/marine/conditions?latitude=20.5&longitude=72.9`
+- `GET /v1/marine/sst?latitude=18.025&longitude=70.525&at=2026-08-27T00:00:00Z`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
 - `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
@@ -133,6 +136,44 @@ envelope: `404 NO_VALID_PFZ`, `502 INVALID_PFZ_RESPONSE`, and
 `503 SOURCE_UNAVAILABLE`. FastAPI returns `422` for invalid coordinates or a
 timezone-naive `at` value.
 
+## Copernicus Marine SST
+
+The optional real SST adapter uses Copernicus Marine product
+`SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001`, dataset
+`METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2`, and decoded `analysed_sst` values in
+Kelvin. Install the pinned Toolbox integration separately from the default
+application:
+
+```powershell
+python -m pip install -e ".[copernicus]"
+```
+
+Configure a local Copernicus Marine login, then set
+`COPERNICUS_SST_ENABLED=true`. Never commit credentials. With the integration
+disabled, `/v1/marine/conditions` continues to use the clearly labelled demo
+SST source; waves and wind remain demo sources in either mode.
+
+`GET /v1/marine/sst` accepts decimal `latitude`, `longitude`, and an optional
+timezone-aware `at`. It loads only a small spatial/time subset, chooses the
+latest analysis not later than `at`, rejects missing and non-finite cells, and
+uses deterministic Haversine distance to choose the nearest valid cell within
+the configured radius. A coastal request may therefore return
+`quality="nearest_valid_ocean_cell"`; it never expands the search radius.
+
+The Toolbox returns decoded physical values. ORCA converts Kelvin to Celsius
+exactly once with `Celsius = Kelvin - 273.15`. Fresh responses are cached by
+dataset, variable, normalized coordinates, and requested UTC date. Matching
+stale data may be returned after a provider failure, but unrelated coordinates
+or dates never share an SST cache entry.
+
+The endpoint returns a typed response containing requested and sampled
+locations, sample distance, Celsius and source Kelvin values, analysis and
+retrieval times, quality, source identifiers, cache status, and warnings.
+Errors use the standard envelope with `404 NO_VALID_SST`,
+`502 INVALID_SST_RESPONSE`, or one of `503 SST_SOURCE_UNAVAILABLE`,
+`SST_AUTHENTICATION_FAILED`, and `SST_SOURCE_NOT_CONFIGURED`. Invalid
+coordinates or timezone-naive timestamps return `422`.
+
 ## Setup
 
 Python 3.11 or newer is required.
@@ -143,6 +184,10 @@ py -m venv .venv
 python -m pip install -e ".[test]"
 Copy-Item .env.example .env
 ```
+
+The default install does not include Copernicus Marine. To enable real SST,
+install `.[copernicus]`, configure a local Copernicus Marine login, and use the
+safe settings documented in `.env.example`.
 
 Run the API:
 
@@ -200,10 +245,12 @@ python -m app.jobs.ingest_pfz
 
 ### Checkpoint D — first real marine-condition adapter
 
-- Next milestone.
-- Select one authoritative source and one variable.
-- Implement spatial/temporal subsetting, normalization, caching, and tests.
-- Replace one demo source without breaking partial-failure behavior.
+- D0 and D1 complete.
+- Validated and integrated the Copernicus Marine global NRT L4 SST product.
+- Added small-subset retrieval, temporal selection, decoded-value
+  normalization, nearest-valid-ocean-cell handling, caching, and offline tests.
+- Real SST replaces demo SST only when explicitly enabled; partial-failure
+  behavior remains intact.
 
 ### Checkpoint E — combined conditions and safety
 

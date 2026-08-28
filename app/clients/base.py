@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Protocol
 
 import httpx
@@ -13,7 +14,7 @@ class MarineSource(Protocol):
         client: httpx.AsyncClient,
         latitude: float,
         longitude: float,
+        at: datetime | None = None,
     ) -> SourceResult:
         """Fetch one normalized marine-source result."""
         ...
-
