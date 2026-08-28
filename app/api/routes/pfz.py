@@ -1,8 +1,16 @@
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.clients.incois_pfz import PFZSourceUnavailableError
 from app.parsers.pfz_html import NoSectorsDiscoveredError, PFZParseError
-from app.schemas.pfz import PFZAdvisory, PFZSnapshot
+from app.schemas.pfz import (
+    NearestPFZResponse,
+    PFZAdvisory,
+    PFZSnapshot,
+    TimezoneAwareUTCDateTime,
+)
+from app.services.pfz import NoValidPFZError
 
 
 router = APIRouter(prefix="/pfz", tags=["pfz"])
@@ -109,6 +117,99 @@ async def preview_pfz_sector(
 async def get_pfz_snapshot(request: Request) -> PFZSnapshot:
     try:
         return await request.app.state.pfz_snapshot_service.get_snapshot()
+    except NoSectorsDiscoveredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "NO_SECTORS_DISCOVERED",
+                "message": "INCOIS returned no discoverable PFZ sectors",
+            },
+        ) from exc
+    except PFZSourceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "SOURCE_UNAVAILABLE",
+                "message": "INCOIS PFZ source unavailable",
+            },
+        ) from exc
+    except PFZParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "INVALID_PFZ_RESPONSE",
+                "message": "INCOIS PFZ response was invalid",
+            },
+        ) from exc
+
+
+@router.get(
+    "/nearest",
+    response_model=NearestPFZResponse,
+    responses={
+        404: {
+            "description": "No PFZ advisory is valid for the requested time",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "NO_VALID_PFZ",
+                            "message": (
+                                "No PFZ advisory is valid for the requested time"
+                            ),
+                        }
+                    }
+                }
+            },
+        },
+        502: {
+            "description": "INCOIS returned invalid PFZ content",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "INVALID_PFZ_RESPONSE",
+                            "message": "INCOIS PFZ response was invalid",
+                        }
+                    }
+                }
+            },
+        },
+        503: {
+            "description": "INCOIS was unavailable with no cached fallback",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "SOURCE_UNAVAILABLE",
+                            "message": "INCOIS PFZ source unavailable",
+                        }
+                    }
+                }
+            },
+        },
+    },
+)
+async def get_nearest_pfz(
+    request: Request,
+    latitude: Annotated[float, Query(ge=-90.0, le=90.0)],
+    longitude: Annotated[float, Query(ge=-180.0, le=180.0)],
+    at: Annotated[TimezoneAwareUTCDateTime | None, Query()] = None,
+) -> NearestPFZResponse:
+    try:
+        return await request.app.state.pfz_nearest_service.get_nearest(
+            latitude=latitude,
+            longitude=longitude,
+            at=at,
+        )
+    except NoValidPFZError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NO_VALID_PFZ",
+                "message": "No PFZ advisory is valid for the requested time",
+            },
+        ) from exc
     except NoSectorsDiscoveredError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

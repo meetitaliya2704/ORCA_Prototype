@@ -1,7 +1,8 @@
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
 class PFZLocation(BaseModel):
@@ -120,5 +121,101 @@ class PFZSnapshot(BaseModel):
         )
         if self.completeness != expected:
             raise ValueError("snapshot completeness is inconsistent")
+        return self
+
+
+def _timezone_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("at must include a timezone offset")
+    return value.astimezone(UTC)
+
+
+TimezoneAwareUTCDateTime = Annotated[datetime, AfterValidator(_timezone_aware_utc)]
+
+
+class NearestPFZQuery(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    at: TimezoneAwareUTCDateTime | None = None
+
+
+class NearestPFZQueryResult(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    at: datetime
+
+
+class PFZValueRange(BaseModel):
+    minimum: float | None = Field(default=None, ge=0)
+    maximum: float | None = Field(default=None, ge=0)
+
+
+class NearestPFZLocation(BaseModel):
+    sector_code: str = Field(pattern=r"^SEC\d+$")
+    region_name: str = Field(min_length=1)
+    landing_centre: str = Field(min_length=1)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    distance_km: float = Field(ge=0)
+    bearing_deg: float = Field(ge=0, lt=360)
+    direction: Literal["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    distance_from_coast_km: PFZValueRange
+    depth_m: PFZValueRange
+
+
+class PFZSourceMetadata(BaseModel):
+    name: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+    retrieved_at: datetime
+
+
+class PFZGeoJSONGeometry(BaseModel):
+    type: Literal["Point"] = "Point"
+    coordinates: tuple[float, float]
+
+
+class PFZGeoJSONProperties(BaseModel):
+    sector_code: str
+    region_name: str
+    landing_centre: str
+    distance_km: float
+    bearing_deg: float
+    direction: Literal["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+
+
+class PFZGeoJSONFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    geometry: PFZGeoJSONGeometry
+    properties: PFZGeoJSONProperties
+
+
+class NearestPFZResponse(BaseModel):
+    query: NearestPFZQueryResult
+    nearest_pfz: NearestPFZLocation
+    valid_from: datetime
+    valid_until: datetime
+    forecast_date: date
+    source: PFZSourceMetadata
+    cache_status: PFZCacheStatus
+    completeness: PFZSnapshotCompleteness
+    failed_sectors: list[FailedPFZSector] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    geojson: PFZGeoJSONFeature
+    notice: str = (
+        "Decision-support information; verify current official advisories."
+    )
+
+    @model_validator(mode="after")
+    def validity_window_is_timezone_aware(self) -> "NearestPFZResponse":
+        for field_name, value in (
+            ("valid_from", self.valid_from),
+            ("valid_until", self.valid_until),
+            ("query.at", self.query.at),
+            ("source.retrieved_at", self.source.retrieved_at),
+        ):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{field_name} must be timezone-aware")
+        if self.valid_until < self.valid_from:
+            raise ValueError("valid_until cannot be before valid_from")
         return self
 

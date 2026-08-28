@@ -53,6 +53,8 @@ REDIS_URL=redis://localhost:6379/0
   and process-local single-flight refresh protection.
 - INCOIS page validation, flexible forecast-date parsing, DMS conversion, and
   malformed-row warnings.
+- Deterministic nearest-valid-PFZ selection with Haversine distance, initial
+  bearing, eight-point compass direction, and an embedded GeoJSON Feature.
 - A demonstration WebSocket ingestion-progress stream.
 - Separate demonstration and PFZ command-line ingestion jobs.
 
@@ -62,10 +64,74 @@ Current endpoints:
 - `GET /v1/marine/conditions?latitude=20.5&longitude=72.9`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
+- `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
 - `WS /v1/ws/ingestion`
 
-Nearest-PFZ calculations, GeoJSON, and real marine adapters are later
-checkpoints and are not implemented yet.
+The nearest endpoint requires latitude and longitude. The optional `at`
+parameter must include a timezone; if omitted, the current timezone-aware UTC
+time is used. Source date-only validity is interpreted as complete calendar
+days in Asia/Kolkata, including the final microsecond of the end date, and is
+then converted to UTC.
+
+Distance and bearing are calculated by deterministic Python code, without an
+LLM or geospatial database. Distance uses the Haversine formula and the mean
+Earth radius `6371.0088 km`. The full-precision distance selects the result;
+rounding happens only when building the response. GeoJSON always uses
+`[longitude, latitude]` coordinate order.
+
+Example response (values are illustrative):
+
+```json
+{
+  "query": {
+    "latitude": 21.6417,
+    "longitude": 69.6293,
+    "at": "2026-08-27T12:00:00Z"
+  },
+  "nearest_pfz": {
+    "sector_code": "SEC001",
+    "region_name": "Gujarat",
+    "landing_centre": "Lakhi Bandar",
+    "latitude": 22.7167,
+    "longitude": 68.95,
+    "distance_km": 18.4,
+    "bearing_deg": 141.0,
+    "direction": "SE",
+    "distance_from_coast_km": {"minimum": 122.0, "maximum": 127.0},
+    "depth_m": {"minimum": 2.0, "maximum": 7.0}
+  },
+  "valid_from": "2026-08-26T18:30:00Z",
+  "valid_until": "2026-08-27T18:29:59.999999Z",
+  "forecast_date": "2026-08-27",
+  "source": {
+    "name": "INCOIS",
+    "url": "https://incois.gov.in/MarineFisheries/",
+    "retrieved_at": "2026-08-27T11:45:00Z"
+  },
+  "cache_status": "fresh",
+  "completeness": "complete",
+  "failed_sectors": [],
+  "warnings": [],
+  "geojson": {
+    "type": "Feature",
+    "geometry": {"type": "Point", "coordinates": [68.95, 22.7167]},
+    "properties": {
+      "sector_code": "SEC001",
+      "region_name": "Gujarat",
+      "landing_centre": "Lakhi Bandar",
+      "distance_km": 18.4,
+      "bearing_deg": 141.0,
+      "direction": "SE"
+    }
+  },
+  "notice": "Decision-support information; verify current official advisories."
+}
+```
+
+Nearest-PFZ errors use the standard `{"detail":{"code","message"}}`
+envelope: `404 NO_VALID_PFZ`, `502 INVALID_PFZ_RESPONSE`, and
+`503 SOURCE_UNAVAILABLE`. FastAPI returns `422` for invalid coordinates or a
+timezone-naive `at` value.
 
 ## Setup
 
@@ -109,6 +175,7 @@ python -m app.jobs.ingest_pfz
 
 ### Checkpoint A — restored baseline
 
+- Complete.
 - Confirm the application starts without database configuration.
 - Run the complete existing test suite.
 - Protect `#sectorname` and flexible date parsing with regression tests.
@@ -116,7 +183,7 @@ python -m app.jobs.ingest_pfz
 
 ### Checkpoint B — PFZ discovery and caching
 
-- Active checkpoint.
+- Complete.
 - Discover every live sector from `TextDataHome`.
 - Fetch all sectors with bounded concurrency.
 - Normalize and cache one complete advisory snapshot.
@@ -124,6 +191,7 @@ python -m app.jobs.ingest_pfz
 
 ### Checkpoint C — nearest PFZ
 
+- Complete.
 - Add Haversine, bearing, and compass-direction utilities.
 - Add validity filtering.
 - Implement `/v1/pfz/nearest`.
@@ -132,6 +200,7 @@ python -m app.jobs.ingest_pfz
 
 ### Checkpoint D — first real marine-condition adapter
 
+- Next milestone.
 - Select one authoritative source and one variable.
 - Implement spatial/temporal subsetting, normalization, caching, and tests.
 - Replace one demo source without breaking partial-failure behavior.

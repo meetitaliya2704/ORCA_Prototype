@@ -10,7 +10,11 @@ from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
 from app.services.cache import MemoryJsonCache, RedisJsonCache
 from app.services.marine import MarineConditionsService
-from app.services.pfz import PFZPreviewService, PFZSnapshotService
+from app.services.pfz import (
+    PFZNearestService,
+    PFZPreviewService,
+    PFZSnapshotService,
+)
 
 
 settings = get_settings()
@@ -52,11 +56,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         fetch_concurrency=settings.pfz_fetch_concurrency,
     )
     app.state.pfz_service = PFZPreviewService(pfz_client)
-    app.state.pfz_snapshot_service = PFZSnapshotService(
+    pfz_snapshot_service = PFZSnapshotService(
         client=pfz_client,
         cache=cache,
         fresh_ttl_seconds=settings.pfz_cache_ttl_seconds,
         stale_ttl_seconds=settings.pfz_stale_ttl_seconds,
+    )
+    app.state.pfz_snapshot_service = pfz_snapshot_service
+    app.state.pfz_nearest_service = PFZNearestService(
+        snapshot_service=pfz_snapshot_service
     )
 
     yield

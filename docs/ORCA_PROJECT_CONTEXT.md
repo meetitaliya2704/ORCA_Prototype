@@ -24,13 +24,16 @@ ORCA is decision support, not certified navigation advice.
 
 ## Current implementation status
 
-- Checkpoint A is complete with 22 tests passing.
+- Checkpoints A, B, and C are complete with 95 offline tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
 - A dedicated `#sectorname` regression fixture protects the live-page variant.
-- Checkpoint B, automatic PFZ sector discovery and cached normalized snapshots,
-  is now active.
+- Automatic PFZ sector discovery, normalized snapshot caching, stale fallback,
+  and partial-sector results are implemented.
+- Deterministic nearest-valid-PFZ retrieval, UTC validity normalization,
+  Haversine distance, bearing, compass direction, and GeoJSON are implemented.
+- Checkpoint D, the first real marine-condition adapter, is the next milestone.
 
 ## 3. Current repository baseline
 
@@ -164,9 +167,9 @@ https://incois.gov.in/MarineFisheries/TextData?secid=SEC001
 
 Never hard-code or persist `JSESSIONID`. Never hard-code sector-to-region mappings.
 
-## 7. Next endpoint
+## 7. Nearest-PFZ endpoint
 
-Implement:
+Implemented:
 
 ```http
 GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z
@@ -211,8 +214,9 @@ GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z
       "maximum": 7.0
     }
   },
+  "valid_from": "2026-08-26T18:30:00Z",
+  "valid_until": "2026-08-27T18:29:59.999999Z",
   "forecast_date": "2026-08-27",
-  "valid_until": "2026-08-28T18:30:00Z",
   "source": {
     "name": "INCOIS",
     "retrieved_at": "2026-08-27T12:00:00Z",
@@ -348,6 +352,7 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 
 ### Checkpoint A — restored baseline
 
+- Complete.
 - Confirm the application starts without database configuration.
 - Run the complete existing test suite.
 - Reapply/test `#sectorname` and flexible date parsing if the revert removed them.
@@ -355,6 +360,7 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 
 ### Checkpoint B — PFZ discovery and caching
 
+- Complete.
 - Discover every live sector from `TextDataHome`.
 - Fetch all sectors with bounded concurrency.
 - Normalize and cache one complete advisory snapshot.
@@ -362,6 +368,7 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 
 ### Checkpoint C — nearest PFZ
 
+- Complete.
 - Add Haversine, bearing, and compass-direction utilities.
 - Add validity filtering.
 - Implement `/v1/pfz/nearest`.
@@ -370,6 +377,7 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 
 ### Checkpoint D — first real marine-condition adapter
 
+- Next milestone.
 - Select one authoritative source and one variable.
 - Implement spatial/temporal subsetting, normalization, caching, and tests.
 - Replace one corresponding demo source without breaking partial-failure behavior.
@@ -386,7 +394,7 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 - Display source, validity, freshness, and warnings.
 - Add LangGraph only after deterministic services and tests are stable.
 
-## 13. Definition of the next successful milestone
+## 13. Completed PFZ milestone
 
 The next milestone is complete when:
 
@@ -399,3 +407,7 @@ The next milestone is complete when:
 - The response includes source, retrieval time, validity, cache status, warnings, and GeoJSON.
 - Provider failure returns stale data clearly when available, otherwise a typed error.
 - All normal tests pass without internet access.
+
+The next milestone is Checkpoint D: replace one demonstration marine source
+with a real authoritative adapter while retaining normalization, caching, and
+partial-failure behavior.
