@@ -12,6 +12,10 @@ from app.clients.copernicus_waves import (
     CopernicusMarineWaveCycleResolver,
     CopernicusMarineWaveProvider,
 )
+from app.clients.copernicus_wind import (
+    COPERNICUS_WIND_DATASET_VERSION,
+    CopernicusMarineWindProvider,
+)
 from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
 from app.services.cache import MemoryJsonCache, RedisJsonCache
@@ -23,6 +27,7 @@ from app.services.pfz import (
 )
 from app.services.sst import CopernicusSSTMarineSource, CopernicusSSTService
 from app.services.waves import CopernicusWaveMarineSource, CopernicusWaveService
+from app.services.wind import CopernicusWindMarineSource, CopernicusWindService
 
 
 settings = get_settings()
@@ -88,10 +93,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         wave_source = DemoMarineSource("waves", "WAVE_HEIGHT", 1.6, "m")
         app.state.wave_service = None
 
+    if settings.copernicus_wind_enabled:
+        wind_service = CopernicusWindService(
+            provider=CopernicusMarineWindProvider(),
+            cache=cache,
+            dataset_id=settings.copernicus_wind_dataset_id,
+            dataset_version=COPERNICUS_WIND_DATASET_VERSION,
+            eastward_variable=settings.copernicus_wind_eastward_variable,
+            northward_variable=settings.copernicus_wind_northward_variable,
+            search_radius_km=settings.copernicus_wind_search_radius_km,
+            max_age_hours=settings.copernicus_wind_max_age_hours,
+            fresh_ttl_seconds=settings.copernicus_wind_cache_ttl_seconds,
+            stale_ttl_seconds=settings.copernicus_wind_stale_ttl_seconds,
+        )
+        wind_source = CopernicusWindMarineSource(wind_service)
+        app.state.wind_service = wind_service
+    else:
+        wind_source = DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h")
+        app.state.wind_service = None
+
     sources = [
         sst_source,
         wave_source,
-        DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h"),
+        wind_source,
     ]
 
     app.state.marine_service = MarineConditionsService(

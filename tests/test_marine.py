@@ -15,9 +15,15 @@ from app.clients.copernicus_waves import (
     WaveSourceNotConfiguredError,
     WaveSourceUnavailableError,
 )
+from app.clients.copernicus_wind import (
+    InvalidWindResponseError,
+    WindAuthenticationError,
+    WindSourceNotConfiguredError,
+    WindSourceUnavailableError,
+)
 from app.clients.demo import DemoMarineSource
 from app.main import app
-from app.schemas.marine import SSTResponse, WaveResponse
+from app.schemas.marine import SSTResponse, WaveResponse, WindResponse
 from app.services.cache import MemoryJsonCache
 from app.services.marine import MarineConditionsService
 from app.services.sst import CopernicusSSTMarineSource, NoValidSSTError
@@ -25,6 +31,12 @@ from app.services.waves import (
     CopernicusWaveMarineSource,
     NoValidWaveDataError,
     NoWaveTimeAvailableError,
+)
+from app.services.wind import (
+    CopernicusWindMarineSource,
+    NoValidWindDataError,
+    NoWindForecastAvailableError,
+    WindDataTooOldError,
 )
 
 
@@ -107,14 +119,60 @@ class FakeWaveService:
         return self.result
 
 
+def wind_response() -> WindResponse:
+    return WindResponse.model_validate(
+        {
+            "requested_location": {"latitude": 18.025, "longitude": 70.525},
+            "sampled_location": {"latitude": 18.0625, "longitude": 70.5625},
+            "sample_distance_km": 5.8,
+            "requested_time": "2026-08-29T12:45:00Z",
+            "valid_time": "2026-08-28T23:00:00Z",
+            "data_age_hours": 13.75,
+            "eastward_wind": {"value": 10.24},
+            "northward_wind": {"value": 3.77},
+            "wind_speed": {"value": 10.911943},
+            "wind_direction_from": {
+                "value": 249.788106,
+                "unit": "degree",
+                "compass": "W",
+            },
+            "retrieved_at": "2026-08-29T12:45:00Z",
+            "source": {
+                "dataset_id": "cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H"
+            },
+            "quality": "nearest_valid_grid_cell",
+            "cache_status": "refreshed",
+        }
+    )
+
+
+class FakeWindService:
+    def __init__(self, result=None, error: Exception | None = None) -> None:
+        self.result = result or wind_response()
+        self.error = error
+        self.received = None
+
+    async def get_wind(self, **kwargs):
+        self.received = kwargs
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
 class FakeConditionsService:
     def __init__(self) -> None:
         self.received = None
 
-    async def get_conditions(self, latitude: float, longitude: float):
+    async def get_conditions(
+        self,
+        latitude: float,
+        longitude: float,
+        at: datetime | None = None,
+    ):
         self.received = {
             "latitude": latitude,
             "longitude": longitude,
+            "at": at,
         }
         return {
             "latitude": latitude,
@@ -131,9 +189,12 @@ def install_coordinate_service(path: str):
     elif path.endswith("/sst"):
         service = FakeSSTService()
         app.state.sst_service = service
-    else:
+    elif path.endswith("/waves"):
         service = FakeWaveService()
         app.state.wave_service = service
+    else:
+        service = FakeWindService()
+        app.state.wind_service = service
     return service
 
 
@@ -141,6 +202,7 @@ MARINE_COORDINATE_ENDPOINTS = [
     "/v1/marine/conditions",
     "/v1/marine/sst",
     "/v1/marine/waves",
+    "/v1/marine/wind",
 ]
 
 
@@ -502,3 +564,129 @@ def test_conditions_preserves_partial_results_when_real_waves_fail() -> None:
     }
     assert response.json()["sources"]["sst"]["data"]["quality"] == "demo"
     assert response.json()["sources"]["wind"]["status"] == "fresh"
+
+
+def test_typed_wind_endpoint_accepts_decimals_and_direction_from() -> None:
+    service = FakeWindService()
+    with TestClient(app) as client:
+        app.state.wind_service = service
+        response = client.get(
+            "/v1/marine/wind",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-29T12:45:00Z",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["wind_direction_from"] == {
+        "value": 249.788106,
+        "unit": "degree",
+        "compass": "W",
+    }
+    assert body["source"]["forecast_available"] is False
+    assert "ocean" not in body["quality"]
+    assert service.received["latitude"] == 18.025
+    assert service.received["longitude"] == 70.525
+
+
+def test_wind_endpoint_rejects_naive_time_and_invalid_coordinates() -> None:
+    with TestClient(app) as client:
+        naive = client.get(
+            "/v1/marine/wind",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-29T12:45:00",
+            },
+        )
+        invalid = client.get(
+            "/v1/marine/wind",
+            params={"latitude": 91, "longitude": 181},
+        )
+    assert naive.status_code == 422
+    assert invalid.status_code == 422
+
+
+def test_disabled_wind_endpoint_is_not_configured() -> None:
+    with TestClient(app) as client:
+        app.state.wind_service = None
+        response = client.get(
+            "/v1/marine/wind",
+            params={"latitude": 18.025, "longitude": 70.525},
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "WIND_SOURCE_NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "code"),
+    [
+        (NoValidWindDataError("private"), 404, "NO_VALID_WIND_DATA"),
+        (
+            NoWindForecastAvailableError("private"),
+            404,
+            "NO_WIND_FORECAST_AVAILABLE",
+        ),
+        (InvalidWindResponseError("private"), 502, "INVALID_WIND_RESPONSE"),
+        (WindSourceUnavailableError("private"), 503, "WIND_SOURCE_UNAVAILABLE"),
+        (WindAuthenticationError("private"), 503, "WIND_AUTHENTICATION_FAILED"),
+        (
+            WindSourceNotConfiguredError("private"),
+            503,
+            "WIND_SOURCE_NOT_CONFIGURED",
+        ),
+        (WindDataTooOldError("private"), 503, "WIND_DATA_TOO_OLD"),
+    ],
+)
+def test_wind_endpoint_maps_safe_typed_errors(
+    error: Exception,
+    status_code: int,
+    code: str,
+) -> None:
+    with TestClient(app) as client:
+        app.state.wind_service = FakeWindService(error=error)
+        response = client.get(
+            "/v1/marine/wind",
+            params={"latitude": 18.025, "longitude": 70.525},
+        )
+    assert response.status_code == status_code
+    assert response.json()["detail"]["code"] == code
+    assert "private" not in response.json()["detail"]["message"]
+
+
+def test_conditions_keep_wave_result_when_future_wind_is_unavailable() -> None:
+    future = datetime(2026, 8, 30, tzinfo=UTC)
+    with TestClient(app) as client:
+        app.state.marine_service = MarineConditionsService(
+            client=app.state.marine_service.client,
+            cache=MemoryJsonCache(),
+            sources=[
+                DemoMarineSource("sst", "SST", 29.4, "degC"),
+                DemoMarineSource("waves", "WAVE_HEIGHT", 1.6, "m"),
+                CopernicusWindMarineSource(
+                    FakeWindService(
+                        error=NoWindForecastAvailableError("private detail")
+                    )
+                ),
+            ],
+            cache_ttl=300,
+        )
+        response = client.get(
+            "/v1/marine/conditions",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": future.isoformat(),
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["sources"]["waves"]["status"] == "fresh"
+    assert response.json()["sources"]["wind"]["status"] == "unavailable"
+    assert (
+        response.json()["sources"]["wind"]["error"]
+        == "NO_WIND_FORECAST_AVAILABLE"
+    )

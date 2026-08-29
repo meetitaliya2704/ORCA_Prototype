@@ -24,8 +24,8 @@ ORCA is decision support, not certified navigation advice.
 
 ## Current implementation status
 
-- Checkpoints A, B, C, D0, D1, D2-0, and D2-1 are complete with 187 offline
-  tests passing.
+- Checkpoints A, B, C, D0, D1, D2-0, D2-1, D3-0, and D3-1 are complete with
+  235 offline tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -41,6 +41,10 @@ ORCA is decision support, not certified navigation advice.
 - The verified Copernicus global MFWAM total-wave analysis/forecast source is
   integrated behind a separate optional feature flag, with cycle-aware time
   selection and bounded coastal fallback.
+- The verified Copernicus global Level-4 NRT blended wind analysis is integrated
+  behind its own optional flag. It derives speed and meteorological direction
+  from decoded components, enforces ORCA's 30-hour freshness policy, and never
+  presents the source as a forecast.
 
 ## 3. Current repository baseline
 
@@ -454,7 +458,18 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
   cache-aside/stale handling, and combined-condition integration are
   implemented.
 - Demo waves remain only when the real wave adapter is disabled. Wind remains
-  demo data.
+  demo data only when the real wind adapter is disabled.
+- D3-0 complete: product `WIND_GLO_PHY_L4_NRT_012_004`, dataset
+  `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H` version `202207`, and decoded
+  `eastward_wind`/`northward_wind` behavior were validated. The product is a
+  scatterometer/model blended analysis and explicitly has no forecast.
+- D3-1 complete: typed `/v1/marine/wind`,
+  bounded grid selection, deterministic speed and meteorological
+  direction-from, cache-aside/stale handling, 30-hour maximum-age enforcement,
+  and combined-condition partial failures are implemented.
+- Because wind components may contain uncorrected model values over land and
+  coastal cells, quality labels refer to valid grid cells rather than ocean
+  cells and responses preserve a source-context warning.
 
 ### Checkpoint E — combined conditions and safety
 

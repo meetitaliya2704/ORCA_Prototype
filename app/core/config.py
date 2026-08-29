@@ -67,6 +67,32 @@ class Settings(BaseSettings):
         le=86400,
     )
 
+    copernicus_wind_enabled: bool = False
+    copernicus_wind_dataset_id: str = Field(
+        default="cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H",
+        min_length=1,
+    )
+    copernicus_wind_eastward_variable: str = Field(
+        default="eastward_wind",
+        min_length=1,
+    )
+    copernicus_wind_northward_variable: str = Field(
+        default="northward_wind",
+        min_length=1,
+    )
+    copernicus_wind_search_radius_km: float = Field(default=50.0, gt=0, le=500)
+    copernicus_wind_max_age_hours: float = Field(default=30.0, gt=0, le=168)
+    copernicus_wind_cache_ttl_seconds: int = Field(
+        default=3600,
+        ge=1,
+        le=604800,
+    )
+    copernicus_wind_stale_ttl_seconds: int = Field(
+        default=21600,
+        ge=1,
+        le=2592000,
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -111,6 +137,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "COPERNICUS_WAVES_STALE_TTL_SECONDS must be greater than or "
                 "equal to COPERNICUS_WAVES_CACHE_TTL_SECONDS"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def wind_cache_windows_are_ordered(self) -> "Settings":
+        if (
+            self.copernicus_wind_stale_ttl_seconds
+            < self.copernicus_wind_cache_ttl_seconds
+        ):
+            raise ValueError(
+                "COPERNICUS_WIND_STALE_TTL_SECONDS must be greater than or "
+                "equal to COPERNICUS_WIND_CACHE_TTL_SECONDS"
             )
         return self
 

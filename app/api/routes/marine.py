@@ -15,14 +15,26 @@ from app.clients.copernicus_waves import (
     WaveSourceNotConfiguredError,
     WaveSourceUnavailableError,
 )
+from app.clients.copernicus_wind import (
+    InvalidWindResponseError,
+    WindAuthenticationError,
+    WindSourceNotConfiguredError,
+    WindSourceUnavailableError,
+)
 from app.schemas.marine import (
     MarineConditionsResponse,
     SSTQueryTime,
     SSTResponse,
     WaveResponse,
+    WindResponse,
 )
 from app.services.sst import NoValidSSTError
 from app.services.waves import NoValidWaveDataError, NoWaveTimeAvailableError
+from app.services.wind import (
+    NoValidWindDataError,
+    NoWindForecastAvailableError,
+    WindDataTooOldError,
+)
 
 
 router = APIRouter(prefix="/marine", tags=["marine"])
@@ -33,10 +45,12 @@ async def get_conditions(
     request: Request,
     latitude: LatitudeQuery,
     longitude: LongitudeQuery,
+    at: Annotated[SSTQueryTime | None, Query()] = None,
 ) -> MarineConditionsResponse:
     return await request.app.state.marine_service.get_conditions(
         latitude,
         longitude,
+        at,
     )
 
 
@@ -190,5 +204,89 @@ async def get_waves(
             detail={
                 "code": "WAVE_SOURCE_UNAVAILABLE",
                 "message": "Copernicus Marine wave source is unavailable",
+            },
+        ) from exc
+
+
+@router.get(
+    "/wind",
+    response_model=WindResponse,
+    responses={
+        404: {"description": "No valid wind cell exists or forecasts were requested"},
+        502: {"description": "Copernicus returned an invalid wind response"},
+        503: {"description": "Copernicus wind is unavailable, stale, or not configured"},
+    },
+)
+async def get_wind(
+    request: Request,
+    latitude: LatitudeQuery,
+    longitude: LongitudeQuery,
+    at: Annotated[SSTQueryTime | None, Query()] = None,
+) -> WindResponse:
+    service = request.app.state.wind_service
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "WIND_SOURCE_NOT_CONFIGURED",
+                "message": "Copernicus wind is not enabled",
+            },
+        )
+    try:
+        return await service.get_wind(latitude=latitude, longitude=longitude, at=at)
+    except NoValidWindDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NO_VALID_WIND_DATA",
+                "message": "No valid wind data exists within the configured radius",
+            },
+        ) from exc
+    except NoWindForecastAvailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NO_WIND_FORECAST_AVAILABLE",
+                "message": "The near-real-time wind source does not provide forecasts",
+            },
+        ) from exc
+    except InvalidWindResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "INVALID_WIND_RESPONSE",
+                "message": "Copernicus returned an invalid wind response",
+            },
+        ) from exc
+    except WindAuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "WIND_AUTHENTICATION_FAILED",
+                "message": "Copernicus Marine credentials are missing or invalid",
+            },
+        ) from exc
+    except WindSourceNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "WIND_SOURCE_NOT_CONFIGURED",
+                "message": "Copernicus wind integration is not configured",
+            },
+        ) from exc
+    except WindDataTooOldError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "WIND_DATA_TOO_OLD",
+                "message": "Latest wind data exceeds ORCA's maximum age policy",
+            },
+        ) from exc
+    except WindSourceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "WIND_SOURCE_UNAVAILABLE",
+                "message": "Copernicus Marine wind source is unavailable",
             },
         ) from exc

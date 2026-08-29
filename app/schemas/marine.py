@@ -167,3 +167,70 @@ class WaveResponse(BaseModel):
         ):
             raise ValueError("unknown wave time classification cannot include forecast metadata")
         return self
+
+
+class WindCacheStatus(StrEnum):
+    FRESH = "fresh"
+    REFRESHED = "refreshed"
+    STALE = "stale"
+
+
+class WindQuality(StrEnum):
+    EXACT_GRID_CELL = "exact_grid_cell"
+    NEAREST_VALID_GRID_CELL = "nearest_valid_grid_cell"
+
+
+class WindValue(BaseModel):
+    value: float
+    unit: Literal["m/s"] = "m/s"
+
+
+class WindDirectionFrom(BaseModel):
+    value: float | None
+    unit: Literal["degree"] = "degree"
+    compass: Literal["N", "NE", "E", "SE", "S", "SW", "W", "NW"] | None
+
+
+class WindSourceMetadata(BaseModel):
+    name: Literal["Copernicus Marine"] = "Copernicus Marine"
+    product_id: Literal["WIND_GLO_PHY_L4_NRT_012_004"] = (
+        "WIND_GLO_PHY_L4_NRT_012_004"
+    )
+    dataset_id: str = Field(min_length=1)
+    dataset_version: Literal["202207"] = "202207"
+    data_type: Literal["near_real_time_blended_analysis"] = (
+        "near_real_time_blended_analysis"
+    )
+    forecast_available: Literal[False] = False
+
+
+class WindResponse(BaseModel):
+    requested_location: SSTLocation
+    sampled_location: SSTLocation
+    sample_distance_km: float = Field(ge=0)
+    requested_time: datetime
+    valid_time: datetime
+    data_age_hours: float = Field(ge=0)
+    eastward_wind: WindValue
+    northward_wind: WindValue
+    wind_speed: WindValue
+    wind_direction_from: WindDirectionFrom
+    retrieved_at: datetime
+    source: WindSourceMetadata
+    quality: WindQuality
+    cache_status: WindCacheStatus
+    warnings: list[str] = Field(default_factory=list)
+    notice: Literal["Recent blended analysis, not a future wind forecast."] = (
+        "Recent blended analysis, not a future wind forecast."
+    )
+
+    @model_validator(mode="after")
+    def wind_response_is_consistent(self) -> "WindResponse":
+        values = (self.requested_time, self.valid_time, self.retrieved_at)
+        if any(value.tzinfo is None or value.utcoffset() is None for value in values):
+            raise ValueError("wind timestamps must be timezone-aware")
+        if (self.wind_direction_from.value is None) != (
+            self.wind_direction_from.compass is None
+        ):
+            raise ValueError("wind direction value and compass must both be null")
+        return self

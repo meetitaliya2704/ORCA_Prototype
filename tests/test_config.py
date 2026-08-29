@@ -33,6 +33,15 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.copernicus_waves_direction_variable == "VMDR"
     assert settings.copernicus_waves_search_radius_km == 50
     assert settings.copernicus_waves_time_tolerance_hours == 3
+    assert settings.copernicus_wind_enabled is False
+    assert (
+        settings.copernicus_wind_dataset_id
+        == "cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H"
+    )
+    assert settings.copernicus_wind_eastward_variable == "eastward_wind"
+    assert settings.copernicus_wind_northward_variable == "northward_wind"
+    assert settings.copernicus_wind_search_radius_km == 50
+    assert settings.copernicus_wind_max_age_hours == 30
 
 
 def test_enabled_redis_requires_a_url() -> None:
@@ -116,3 +125,27 @@ def test_wave_time_tolerance_is_bounded(tolerance: int) -> None:
             _env_file=None,
             copernicus_waves_time_tolerance_hours=tolerance,
         )
+
+
+def test_wind_cache_ttls_must_be_ordered() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="COPERNICUS_WIND_STALE_TTL_SECONDS must be greater",
+    ):
+        Settings(
+            _env_file=None,
+            copernicus_wind_cache_ttl_seconds=60,
+            copernicus_wind_stale_ttl_seconds=30,
+        )
+
+
+@pytest.mark.parametrize("radius", [0, 501])
+def test_wind_search_radius_is_bounded(radius: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, copernicus_wind_search_radius_km=radius)
+
+
+@pytest.mark.parametrize("max_age", [0, 169])
+def test_wind_max_age_is_bounded(max_age: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, copernicus_wind_max_age_hours=max_age)

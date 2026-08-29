@@ -69,6 +69,7 @@ Current endpoints:
 - `GET /v1/marine/conditions?latitude=20.5&longitude=72.9`
 - `GET /v1/marine/sst?latitude=18.025&longitude=70.525&at=2026-08-27T00:00:00Z`
 - `GET /v1/marine/waves?latitude=18.025&longitude=70.525&at=2026-08-29T00:00:00Z`
+- `GET /v1/marine/wind?latitude=18.025&longitude=70.525&at=2026-08-29T12:45:00Z`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
 - `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
@@ -218,6 +219,53 @@ codes `WAVE_SOURCE_NOT_CONFIGURED`, `WAVE_AUTHENTICATION_FAILED`, and
 `WAVE_SOURCE_UNAVAILABLE`. Invalid coordinates or timezone-naive timestamps
 return `422`.
 
+## Copernicus Marine wind
+
+The optional real-wind adapter uses Level-4 near-real-time product
+`WIND_GLO_PHY_L4_NRT_012_004`, dataset
+`cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H`, version `202207`. It combines
+scatterometer observations with bias-corrected ECMWF operational model fields.
+It is an hourly blended analysis delivered daily, normally for the previous
+day; it is explicitly **not** a forecast.
+
+Set `COPERNICUS_WIND_ENABLED=true` after installing `.[copernicus]` and
+configuring a saved local Copernicus Marine login. When disabled, the combined
+conditions endpoint uses labelled demo wind. When enabled, a real-provider
+failure is reported per source and is never replaced silently with demo wind.
+
+`GET /v1/marine/wind` accepts decimal coordinates and an optional
+timezone-aware `at`. ORCA retrieves only a bounded spatial/time subset and
+selects the latest hourly timestamp not later than `at`. Future requests return
+`NO_WIND_FORECAST_AVAILABLE`. ORCA applies a configurable 30-hour maximum-age
+policy; this is an ORCA freshness rule, not provider metadata.
+
+The Toolbox returns decoded `eastward_wind` and `northward_wind` values in
+metres per second. ORCA never reapplies packing metadata. Speed and
+meteorological direction **from** are calculated deterministically:
+
+```text
+speed_mps = sqrt(u² + v²)
+direction_from_deg = (270 - degrees(atan2(v, u))) mod 360
+```
+
+Calm wind has no physical direction, so both direction value and compass are
+null. Candidate selection uses full-precision Haversine distance and reports
+either `exact_grid_cell` or `nearest_valid_grid_cell`. The product can contain
+uncorrected model wind components over land or coastal cells, so ORCA never
+claims that a finite wind cell is an ocean cell and returns an explicit source
+context warning.
+
+Wind cache keys include the dataset, both variables, coordinates normalized to
+six decimals, and the requested UTC-hour bucket. Fresh, refreshed, matching
+stale, and process-local single-flight behavior are supported. Stale data is
+used only while it remains within the configured maximum age.
+
+Wind errors use `404 NO_VALID_WIND_DATA`,
+`404 NO_WIND_FORECAST_AVAILABLE`, `502 INVALID_WIND_RESPONSE`, and typed 503
+codes `WIND_SOURCE_NOT_CONFIGURED`, `WIND_AUTHENTICATION_FAILED`,
+`WIND_SOURCE_UNAVAILABLE`, and `WIND_DATA_TOO_OLD`. Invalid coordinates or a
+timezone-naive timestamp return `422`.
+
 ## Setup
 
 Python 3.11 or newer is required.
@@ -229,9 +277,9 @@ python -m pip install -e ".[test]"
 Copy-Item .env.example .env
 ```
 
-The default install does not include Copernicus Marine. To enable real SST or
-waves, install `.[copernicus]`, configure a local Copernicus Marine login, and
-use the safe settings documented in `.env.example`.
+The default install does not include Copernicus Marine. To enable real SST,
+waves, or wind, install `.[copernicus]`, configure a local Copernicus Marine
+login, and use the safe settings documented in `.env.example`.
 
 Run the API:
 
@@ -298,6 +346,9 @@ python -m app.jobs.ingest_pfz
 - D2-0 and D2-1 complete: the global MFWAM wave product was validated and
   integrated with typed analysis/forecast metadata, spatial fallback, caching,
   and partial-failure behavior.
+- D3-0 and D3-1 complete: the global Level-4 NRT blended wind analysis was
+  validated and integrated with deterministic speed/direction-from,
+  maximum-age enforcement, caching, and partial-failure behavior.
 
 ### Checkpoint E — combined conditions and safety
 
