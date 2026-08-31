@@ -37,6 +37,13 @@ async def verify_startup():
         assert "copernicusmarine" not in sys.modules
         assert "ecmwf" not in sys.modules
         assert "eccodes" not in sys.modules
+        chlorophyll = next(
+            source
+            for source in app.state.marine_service.sources
+            if source.name == "chlorophyll"
+        )
+        assert type(chlorophyll).__name__ == "DemoMarineSource"
+        assert chlorophyll.variable == "CHLOROPHYLL_A"
 
 asyncio.run(verify_startup())
 """
@@ -44,6 +51,7 @@ asyncio.run(verify_startup())
     environment.pop("DATABASE_URL", None)
     environment.pop("REDIS_URL", None)
     environment["REDIS_ENABLED"] = "false"
+    environment["CHLOROPHYLL_ENABLED"] = "false"
 
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -220,6 +228,7 @@ class BlockECMWF(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, BlockECMWF())
 
+from datetime import UTC, datetime, timedelta
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -231,7 +240,7 @@ with TestClient(app) as client:
         params={
             "latitude": 18.025,
             "longitude": 70.525,
-            "at": "2026-08-31T00:00:00Z",
+            "at": (datetime.now(UTC) + timedelta(hours=24)).isoformat(),
         },
     )
     assert response.status_code == 503
@@ -242,6 +251,58 @@ with TestClient(app) as client:
     environment["COPERNICUS_WAVES_ENABLED"] = "false"
     environment["COPERNICUS_WIND_ENABLED"] = "false"
     environment["ECMWF_WIND_ENABLED"] = "true"
+    environment["REDIS_ENABLED"] = "false"
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_enabled_chlorophyll_missing_optional_package_is_controlled(
+    tmp_path: Path,
+) -> None:
+    script = r"""
+import importlib.abc
+import sys
+
+class BlockCopernicus(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "copernicusmarine" or fullname.startswith("copernicusmarine."):
+            raise ModuleNotFoundError("copernicusmarine intentionally unavailable")
+        return None
+
+sys.meta_path.insert(0, BlockCopernicus())
+
+from fastapi.testclient import TestClient
+from app.main import app
+
+with TestClient(app) as client:
+    assert "copernicusmarine" not in sys.modules
+    assert "/v1/marine/chlorophyll" in client.get("/openapi.json").json()["paths"]
+    response = client.get(
+        "/v1/marine/chlorophyll",
+        params={
+            "latitude": 18.025,
+            "longitude": 70.525,
+            "at": "2026-08-30T12:00:00Z",
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "CHLOROPHYLL_DEPENDENCY_MISSING"
+"""
+    environment = os.environ.copy()
+    environment["COPERNICUS_SST_ENABLED"] = "false"
+    environment["COPERNICUS_WAVES_ENABLED"] = "false"
+    environment["COPERNICUS_WIND_ENABLED"] = "false"
+    environment["ECMWF_WIND_ENABLED"] = "false"
+    environment["CHLOROPHYLL_ENABLED"] = "true"
     environment["REDIS_ENABLED"] = "false"
 
     result = subprocess.run(

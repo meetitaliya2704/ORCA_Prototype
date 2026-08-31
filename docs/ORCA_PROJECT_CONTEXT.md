@@ -24,8 +24,8 @@ ORCA is decision support, not certified navigation advice.
 
 ## Current implementation status
 
-- Checkpoints A, B, C, D0, D1, D2-0, D2-1, D3-0, D3-1, D3-2-0, and D3-2-1
-  are complete with 301 offline tests passing.
+- Checkpoints A, B, C, D0, D1, D2-0, D2-1, D3-0, D3-1, D3-2-0, D3-2-1,
+  D4-0, and D4-1 are complete with 378 offline tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -49,6 +49,11 @@ ORCA is decision support, not certified navigation advice.
   deterministic 10-metre wind as a separate future-forecast source. It uses
   direct ecCodes decoding, Cycle 50r1 metadata, bounded ECMWF/AWS failover,
   and field plus point caches; Copernicus remains the recent analysis source.
+- Checkpoints D4-0 and D4-1 qualify and integrate Copernicus Marine daily
+  Level-4 chlorophyll-a. The adapter validates live land/interpolation flag
+  metadata, preserves uncertainty and per-cell provenance, bounds water-cell
+  fallback to 10 km, and treats chlorophyll as supporting environmental
+  evidence rather than proof of fish presence.
 
 ## 3. Current repository baseline
 
@@ -359,6 +364,44 @@ Planned source categories:
   `COPERNICUS_WAVES_ENABLED=true`; otherwise it retains the labelled demo wave
   source. Real-provider failure is never replaced by demo data.
 
+### Implemented Copernicus Marine chlorophyll-a source
+
+- Endpoint: `GET /v1/marine/chlorophyll` with decimal coordinates and an
+  optional timezone-aware `at`.
+- Product: `OCEANCOLOUR_GLO_BGC_L4_NRT_009_102`; dataset
+  `cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D`, version
+  `202311`; product DOI `10.48670/moi-00279`.
+- Variables: Toolbox-decoded `CHL` in `mg/m³`, decoded nullable
+  `CHL_uncertainty` in percent, and `flags`. Packing metadata is not reapplied.
+- Classification: `satellite_derived_multi_sensor`, processing level `L4`,
+  and `gap_filled_product=true`. Returned cells separately identify a
+  multi-sensor merged satellite pixel or a space-time interpolated gap fill;
+  neither is described as a direct instrument measurement.
+- Flag validation pairs provider `flag_masks` and `flag_meanings` instead of
+  assuming positions. Required LAND and INTERPOLATED meanings must be unique
+  and consistent. LAND takes precedence and is never returned.
+- Spatial policy: bounded candidates use full-precision Haversine distance and
+  coordinate tie-breaks. Exact means within one metre; ordinary nearest-grid
+  and nearest-valid-water fallback are distinct. The configurable 10-km
+  maximum is an ORCA policy, not provider metadata.
+- Time policy: select the latest daily analysis not later than `at`, reject
+  future forecast requests, and enforce a configurable 72-hour ORCA freshness
+  policy based on daily publication and observed delivery delay.
+- Evidence policy: interpolation, uncertainty at or above the configurable
+  50% ORCA threshold, or unavailable uncertainty produces degraded evidence
+  and explicit warnings without discarding otherwise valid CHL.
+- Cache keys use a canonical SHA-256 identity containing the complete source,
+  spatial, temporal, uncertainty, and adapter-schema configuration. Matching
+  stale data is used only after source unavailability and within its configured
+  maximum age. Identical misses use process-local single flight.
+- `/v1/marine/conditions` includes chlorophyll concurrently. Disabled mode
+  retains a labelled demo source; enabled provider failures remain explicit
+  and cannot erase independent SST, wave, or wind results.
+- Required attribution: `Generated using CMEMS Products, production centre
+  ACRI-ST`.
+- Chlorophyll-a is an environmental indicator and does not independently
+  confirm fish presence. No PFZ score or safety conclusion is derived in D4-1.
+
 Each adapter should return a normalized structure containing:
 
 - Source name and URL/product identifier.
@@ -524,6 +567,13 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
   ecCodes decoding, deterministic grid sampling, bounded failover, field/point
   caching, attribution, and future selection in combined conditions are
   implemented. Copernicus recent wind remains unchanged.
+- D4-0 complete: the daily global Level-4 multi-sensor gap-filled chlorophyll
+  product, `CHL`, uncertainty, flags, open-ocean behavior, and coastal land
+  fallback were qualified through the official Toolbox.
+- D4-1 complete: typed chlorophyll endpoint, strict provider flag validation,
+  uncertainty-aware evidence quality, deterministic bounded spatial/time
+  selection, cache-aside/stale behavior, and combined partial failure are
+  implemented. No fish-presence or safety conclusion is produced.
 
 ### Checkpoint E — combined conditions and safety
 
@@ -551,5 +601,5 @@ The next milestone is complete when:
 - Provider failure returns stale data clearly when available, otherwise a typed error.
 - All normal tests pass without internet access.
 
-Checkpoint D3-2-1 completes the deterministic future-wind adapter. Further
+Checkpoint D4-1 completes the deterministic chlorophyll-a adapter. Further
 source or safety work requires a separately approved checkpoint.

@@ -3,6 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.query_params import LatitudeQuery, LongitudeQuery
+from app.clients.copernicus_chlorophyll import (
+    ChlorophyllAuthenticationError,
+    ChlorophyllDependencyMissingError,
+    ChlorophyllSourceNotConfiguredError,
+    ChlorophyllSourceUnavailableError,
+    InvalidChlorophyllResponseError,
+)
 from app.clients.copernicus_sst import (
     InvalidSSTResponseError,
     SSTAuthenticationError,
@@ -32,12 +39,18 @@ from app.clients.ecmwf_wind import (
     InvalidECMWFWindResponseError,
 )
 from app.schemas.marine import (
+    ChlorophyllResponse,
     MarineConditionsResponse,
     ECMWFWindForecastResponse,
     SSTQueryTime,
     SSTResponse,
     WaveResponse,
     WindResponse,
+)
+from app.services.chlorophyll import (
+    ChlorophyllDataUnavailableError,
+    InvalidChlorophyllTimeError,
+    NoValidChlorophyllCellError,
 )
 from app.services.sst import NoValidSSTError
 from app.services.waves import NoValidWaveDataError, NoWaveTimeAvailableError
@@ -136,6 +149,105 @@ async def get_sst(
             detail={
                 "code": "SST_SOURCE_UNAVAILABLE",
                 "message": "Copernicus Marine SST source is unavailable",
+            },
+        ) from exc
+
+
+@router.get(
+    "/chlorophyll",
+    response_model=ChlorophyllResponse,
+    responses={
+        404: {"description": "No current valid chlorophyll cell is available"},
+        422: {"description": "Coordinates or chlorophyll time are invalid"},
+        502: {"description": "Copernicus returned invalid chlorophyll data"},
+        503: {"description": "Copernicus chlorophyll support is unavailable"},
+    },
+)
+async def get_chlorophyll(
+    request: Request,
+    latitude: LatitudeQuery,
+    longitude: LongitudeQuery,
+    at: Annotated[SSTQueryTime | None, Query()] = None,
+) -> ChlorophyllResponse:
+    service = request.app.state.chlorophyll_service
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHLOROPHYLL_SOURCE_NOT_CONFIGURED",
+                "message": "Copernicus chlorophyll is not enabled",
+            },
+        )
+    try:
+        return await service.get_chlorophyll(
+            latitude=latitude,
+            longitude=longitude,
+            at=at,
+        )
+    except InvalidChlorophyllTimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INVALID_CHLOROPHYLL_TIME",
+                "message": "Chlorophyll requests cannot use a future time",
+            },
+        ) from exc
+    except ChlorophyllDataUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "CHLOROPHYLL_DATA_UNAVAILABLE",
+                "message": "No sufficiently fresh chlorophyll analysis is available",
+            },
+        ) from exc
+    except NoValidChlorophyllCellError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NO_VALID_CHLOROPHYLL_CELL",
+                "message": (
+                    "No valid chlorophyll water cell exists within the configured radius"
+                ),
+            },
+        ) from exc
+    except InvalidChlorophyllResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "INVALID_CHLOROPHYLL_RESPONSE",
+                "message": "Copernicus returned an invalid chlorophyll response",
+            },
+        ) from exc
+    except ChlorophyllDependencyMissingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHLOROPHYLL_DEPENDENCY_MISSING",
+                "message": "Optional Copernicus Marine packages are not installed",
+            },
+        ) from exc
+    except ChlorophyllAuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHLOROPHYLL_AUTHENTICATION_FAILED",
+                "message": "Copernicus Marine credentials are missing or invalid",
+            },
+        ) from exc
+    except ChlorophyllSourceNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHLOROPHYLL_SOURCE_NOT_CONFIGURED",
+                "message": "Copernicus chlorophyll integration is not configured",
+            },
+        ) from exc
+    except ChlorophyllSourceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "CHLOROPHYLL_SOURCE_UNAVAILABLE",
+                "message": "Copernicus Marine chlorophyll source is unavailable",
             },
         ) from exc
 

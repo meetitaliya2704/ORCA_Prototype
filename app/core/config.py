@@ -93,6 +93,36 @@ class Settings(BaseSettings):
         le=2592000,
     )
 
+    chlorophyll_enabled: bool = False
+    chlorophyll_dataset_id: str = Field(
+        default="cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D",
+        min_length=1,
+    )
+    chlorophyll_dataset_version: str = Field(default="202311", min_length=1)
+    chlorophyll_variable: str = Field(default="CHL", min_length=1)
+    chlorophyll_uncertainty_variable: str = Field(
+        default="CHL_uncertainty",
+        min_length=1,
+    )
+    chlorophyll_flags_variable: str = Field(default="flags", min_length=1)
+    chlorophyll_max_radius_km: float = Field(default=10.0, gt=0, le=100)
+    chlorophyll_cache_ttl_seconds: int = Field(
+        default=21600,
+        ge=1,
+        le=604800,
+    )
+    chlorophyll_max_stale_seconds: int = Field(
+        default=86400,
+        ge=1,
+        le=2592000,
+    )
+    chlorophyll_freshness_hours: float = Field(default=72.0, gt=0, le=720)
+    chlorophyll_high_uncertainty_percent: float = Field(
+        default=50.0,
+        ge=0,
+        le=100,
+    )
+
     ecmwf_wind_enabled: bool = False
     ecmwf_wind_model: str = "ifs"
     ecmwf_wind_resolution: str = "0p25"
@@ -187,6 +217,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "COPERNICUS_WIND_STALE_TTL_SECONDS must be greater than or "
                 "equal to COPERNICUS_WIND_CACHE_TTL_SECONDS"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def chlorophyll_cache_windows_are_ordered(self) -> "Settings":
+        if (
+            self.chlorophyll_max_stale_seconds
+            < self.chlorophyll_cache_ttl_seconds
+        ):
+            raise ValueError(
+                "CHLOROPHYLL_MAX_STALE_SECONDS must be greater than or equal "
+                "to CHLOROPHYLL_CACHE_TTL_SECONDS"
             )
         return self
 

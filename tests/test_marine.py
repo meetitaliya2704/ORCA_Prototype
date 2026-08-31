@@ -9,6 +9,7 @@ from app.clients.copernicus_sst import (
     SSTSourceNotConfiguredError,
     SSTSourceUnavailableError,
 )
+from app.clients.copernicus_chlorophyll import ChlorophyllSourceUnavailableError
 from app.clients.copernicus_waves import (
     InvalidWaveResponseError,
     WaveAuthenticationError,
@@ -33,11 +34,13 @@ from app.clients.ecmwf_wind import (
 )
 from app.main import app
 from app.schemas.marine import (
+    ChlorophyllResponse,
     ECMWFWindForecastResponse,
     SSTResponse,
     WaveResponse,
     WindResponse,
 )
+from app.services.chlorophyll import CopernicusChlorophyllMarineSource
 from app.services.cache import MemoryJsonCache
 from app.services.marine import MarineConditionsService
 from app.services.sst import CopernicusSSTMarineSource, NoValidSSTError
@@ -242,6 +245,45 @@ class FakeConditionsService:
         }
 
 
+def chlorophyll_response() -> ChlorophyllResponse:
+    return ChlorophyllResponse.model_validate(
+        {
+            "dataset_id": "cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D",
+            "dataset_version": "202311",
+            "variable": "CHL",
+            "requested_location": {"latitude": 18.025, "longitude": 70.525},
+            "sampled_location": {"latitude": 18.0208321, "longitude": 70.5208435},
+            "sample_distance_km": 0.639,
+            "chlorophyll_a": {"value": 0.3887},
+            "analysis_time": "2026-08-30T00:00:00Z",
+            "retrieved_at": "2026-08-31T20:50:56Z",
+            "spatial_resolution_km": 4.638312,
+            "sampling_quality": "nearest_grid_cell",
+            "data_provenance": "space_time_interpolated_gap_fill",
+            "quality": {
+                "flag_value": 2,
+                "land": False,
+                "interpolated": True,
+                "uncertainty_percent": 70.62,
+                "evidence_quality": "degraded",
+            },
+            "cache_status": "refreshed",
+        }
+    )
+
+
+class FakeChlorophyllService:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.received = None
+
+    async def get_chlorophyll(self, **kwargs):
+        self.received = kwargs
+        if self.error is not None:
+            raise self.error
+        return chlorophyll_response()
+
+
 def install_coordinate_service(path: str):
     if path.endswith("/conditions"):
         service = FakeConditionsService()
@@ -252,6 +294,9 @@ def install_coordinate_service(path: str):
     elif path.endswith("/waves"):
         service = FakeWaveService()
         app.state.wave_service = service
+    elif path.endswith("/chlorophyll"):
+        service = FakeChlorophyllService()
+        app.state.chlorophyll_service = service
     else:
         service = FakeWindService()
         app.state.wind_service = service
@@ -263,6 +308,7 @@ MARINE_COORDINATE_ENDPOINTS = [
     "/v1/marine/sst",
     "/v1/marine/waves",
     "/v1/marine/wind",
+    "/v1/marine/chlorophyll",
 ]
 
 
@@ -504,6 +550,40 @@ def test_conditions_preserves_partial_results_when_real_sst_fails() -> None:
     }
     assert response.json()["sources"]["waves"]["status"] == "fresh"
     assert response.json()["sources"]["wind"]["status"] == "fresh"
+
+
+def test_conditions_preserves_other_sources_when_chlorophyll_fails() -> None:
+    with TestClient(app) as client:
+        app.state.marine_service = MarineConditionsService(
+            client=app.state.marine_service.client,
+            cache=MemoryJsonCache(),
+            sources=[
+                DemoMarineSource("sst", "SST", 29.4, "degC"),
+                DemoMarineSource("waves", "WAVE_HEIGHT", 1.6, "m"),
+                DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h"),
+                CopernicusChlorophyllMarineSource(
+                    FakeChlorophyllService(
+                        error=ChlorophyllSourceUnavailableError("private detail")
+                    )
+                ),
+            ],
+            cache_ttl=300,
+        )
+        response = client.get(
+            "/v1/marine/conditions",
+            params={"latitude": 18.025, "longitude": 70.525},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["sources"]["chlorophyll"] == {
+        "source": "Copernicus Marine",
+        "status": "unavailable",
+        "data": None,
+        "error": "CHLOROPHYLL_SOURCE_UNAVAILABLE",
+        "fetched_at": None,
+        "cached": False,
+    }
+    assert response.json()["sources"]["sst"]["status"] == "fresh"
 
 
 def test_typed_waves_endpoint_preserves_direction_from_and_time() -> None:

@@ -60,6 +60,9 @@ REDIS_URL=redis://localhost:6379/0
   selection, Kelvin-to-Celsius conversion, and source-specific caching.
 - Optional real Copernicus Marine total-wave analysis and forecast retrieval,
   including official cycle metadata and bounded coastal fallback.
+- Optional Copernicus Marine Level-4 chlorophyll-a retrieval with validated
+  land/interpolation flags, uncertainty evidence labels, and bounded water-cell
+  fallback.
 - Optional ECMWF Open Data IFS deterministic 10-metre wind forecasts with
   direct ecCodes decoding, bounded mirror failover, and global-field reuse.
 - A demonstration WebSocket ingestion-progress stream.
@@ -73,6 +76,7 @@ Current endpoints:
 - `GET /v1/marine/waves?latitude=18.025&longitude=70.525&at=2026-08-29T00:00:00Z`
 - `GET /v1/marine/wind?latitude=18.025&longitude=70.525&at=2026-08-29T12:45:00Z`
 - `GET /v1/marine/wind/forecast?latitude=18.025&longitude=70.525&at=2026-08-31T00:00:00Z`
+- `GET /v1/marine/chlorophyll?latitude=18.025&longitude=70.525&at=2026-08-30T12:00:00Z`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
 - `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
@@ -181,6 +185,59 @@ Errors use the standard envelope with `404 NO_VALID_SST`,
 `502 INVALID_SST_RESPONSE`, or one of `503 SST_SOURCE_UNAVAILABLE`,
 `SST_AUTHENTICATION_FAILED`, and `SST_SOURCE_NOT_CONFIGURED`. Invalid
 coordinates or timezone-naive timestamps return `422`.
+
+## Copernicus Marine chlorophyll-a
+
+The optional chlorophyll adapter uses product
+`OCEANCOLOUR_GLO_BGC_L4_NRT_009_102`, dataset
+`cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D`, version
+`202311`, and decoded variables `CHL`, `CHL_uncertainty`, and `flags`. Install
+the existing `.[copernicus]` extra, configure a saved local Copernicus Marine
+login, and set `CHLOROPHYLL_ENABLED=true`. The endpoint remains documented and
+returns a typed configuration error when disabled. Combined conditions use a
+clearly labelled demonstration chlorophyll source only while the real feature
+is disabled; failure after enabling the real source is never replaced by demo
+data.
+
+`GET /v1/marine/chlorophyll` accepts decimal coordinates and an optional
+timezone-aware `at`. This is a daily, approximately 4-km, Level-4 multi-sensor
+gap-filled analysis—not a forecast and not a direct instrument measurement at
+every cell. ORCA reports `satellite_derived_multi_sensor`, processing level
+`L4`, and `gap_filled_product=true`. Provider flags are validated by pairing
+the live `flag_masks` and `flag_meanings`: LAND is rejected, INTERPOLATED is
+accepted with `space_time_interpolated_gap_fill` provenance, and an unmarked
+water value is a `multi_sensor_merged_satellite_pixel`.
+
+Selection evaluates a bounded area with full-precision Haversine distance.
+`exact_grid_cell` applies only within one metre; `nearest_grid_cell` identifies
+a valid ordinary grid centre; and `nearest_valid_water_cell` identifies a
+fallback after the nearest grid cell is land or invalid. The configurable
+10-km maximum radius is an ORCA sampling policy. The latest daily analysis not
+later than `at` must satisfy ORCA's configurable 72-hour freshness policy.
+Future requests are rejected because this product is not a forecast.
+
+Toolbox-decoded values are never scaled twice. `CHL_uncertainty` is nullable.
+Interpolation, uncertainty at or above the configurable 50% threshold, and
+missing uncertainty produce degraded evidence with explicit warnings. The 50%
+threshold is an ORCA presentation policy, not provider metadata, and high
+uncertainty does not discard an otherwise valid result.
+
+Fresh, refreshed, and eligible matching-stale results use single-flight
+protection. A deterministic SHA-256 cache identity includes the product,
+dataset/version, all variables, six-decimal coordinates, requested UTC date,
+radius, exact-grid tolerance, freshness, uncertainty threshold, and adapter
+schema version. Changed quality policy therefore cannot reuse an old result.
+
+Errors use the standard envelope with `422 INVALID_CHLOROPHYLL_TIME`,
+`404 CHLOROPHYLL_DATA_UNAVAILABLE`, `404 NO_VALID_CHLOROPHYLL_CELL`,
+`502 INVALID_CHLOROPHYLL_RESPONSE`, and typed 503 codes for not configured,
+missing dependency, authentication failure, and source unavailability.
+Attribution is `Generated using CMEMS Products, production centre ACRI-ST`;
+the product DOI is `10.48670/moi-00279`.
+
+Satellite-derived chlorophyll-a is an environmental indicator and does not
+independently confirm fish presence. ORCA is an academic decision-support
+prototype, not an official fisheries, weather, or navigation service.
 
 ## Copernicus Marine waves
 
@@ -343,7 +400,7 @@ Copy-Item .env.example .env
 ```
 
 The default install does not include Copernicus Marine. To enable real SST,
-waves, or wind, install `.[copernicus]`, configure a local Copernicus Marine
+waves, wind, or chlorophyll, install `.[copernicus]`, configure a local Copernicus Marine
 login, and use the safe settings documented in `.env.example`.
 
 The default install also excludes ECMWF Open Data support. Install `.[ecmwf]`
@@ -421,6 +478,10 @@ python -m app.jobs.ingest_pfz
 - D3-2-0 and D3-2-1 complete: ECMWF Open Data IFS deterministic wind was
   qualified and integrated as a distinct future-forecast source with direct
   GRIB decoding, Cycle 50r1 selection, bounded failover, and two-level caching.
+- D4-0 and D4-1 complete: the global daily Level-4 multi-sensor chlorophyll-a
+  source was qualified and integrated with strict flag-metadata validation,
+  uncertainty-aware evidence quality, bounded water-cell selection,
+  configuration-isolated caching, and combined-source partial failure.
 
 ### Checkpoint E — combined conditions and safety
 

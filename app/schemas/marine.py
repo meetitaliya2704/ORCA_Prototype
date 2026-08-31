@@ -91,6 +91,87 @@ class SSTResponse(BaseModel):
         return self
 
 
+class ChlorophyllCacheStatus(StrEnum):
+    FRESH = "fresh"
+    REFRESHED = "refreshed"
+    STALE = "stale"
+
+
+class ChlorophyllSamplingQuality(StrEnum):
+    EXACT_GRID_CELL = "exact_grid_cell"
+    NEAREST_GRID_CELL = "nearest_grid_cell"
+    NEAREST_VALID_WATER_CELL = "nearest_valid_water_cell"
+
+
+class ChlorophyllDataProvenance(StrEnum):
+    MULTI_SENSOR_MERGED_SATELLITE_PIXEL = (
+        "multi_sensor_merged_satellite_pixel"
+    )
+    SPACE_TIME_INTERPOLATED_GAP_FILL = "space_time_interpolated_gap_fill"
+
+
+class ChlorophyllEvidenceQuality(StrEnum):
+    NORMAL = "normal"
+    DEGRADED = "degraded"
+
+
+class ChlorophyllValue(BaseModel):
+    value: float = Field(ge=0)
+    unit: Literal["mg/m³"] = "mg/m³"
+
+
+class ChlorophyllQualityMetadata(BaseModel):
+    flag_value: int = Field(ge=0)
+    land: Literal[False] = False
+    interpolated: bool
+    uncertainty_percent: float | None = Field(default=None, ge=0)
+    evidence_quality: ChlorophyllEvidenceQuality
+
+
+class ChlorophyllResponse(BaseModel):
+    provider: Literal["Copernicus Marine"] = "Copernicus Marine"
+    product_id: Literal["OCEANCOLOUR_GLO_BGC_L4_NRT_009_102"] = (
+        "OCEANCOLOUR_GLO_BGC_L4_NRT_009_102"
+    )
+    dataset_id: str = Field(min_length=1)
+    dataset_version: str = Field(min_length=1)
+    variable: str = Field(min_length=1)
+    source_classification: Literal["satellite_derived_multi_sensor"] = (
+        "satellite_derived_multi_sensor"
+    )
+    processing_level: Literal["L4"] = "L4"
+    gap_filled_product: Literal[True] = True
+    requested_location: SSTLocation
+    sampled_location: SSTLocation
+    sample_distance_km: float = Field(ge=0)
+    chlorophyll_a: ChlorophyllValue
+    analysis_time: datetime
+    retrieved_at: datetime
+    spatial_resolution_km: float = Field(gt=0)
+    sampling_quality: ChlorophyllSamplingQuality
+    data_provenance: ChlorophyllDataProvenance
+    quality: ChlorophyllQualityMetadata
+    cache_status: ChlorophyllCacheStatus
+    warnings: list[str] = Field(default_factory=list)
+    attribution: Literal[
+        "Generated using CMEMS Products, production centre ACRI-ST"
+    ] = "Generated using CMEMS Products, production centre ACRI-ST"
+    notice: Literal[
+        "Satellite-derived chlorophyll-a is an environmental indicator and "
+        "does not independently confirm fish presence."
+    ] = (
+        "Satellite-derived chlorophyll-a is an environmental indicator and "
+        "does not independently confirm fish presence."
+    )
+
+    @model_validator(mode="after")
+    def chlorophyll_timestamps_are_timezone_aware(self) -> "ChlorophyllResponse":
+        values = (self.analysis_time, self.retrieved_at)
+        if any(value.tzinfo is None or value.utcoffset() is None for value in values):
+            raise ValueError("chlorophyll timestamps must be timezone-aware")
+        return self
+
+
 class WaveCacheStatus(StrEnum):
     FRESH = "fresh"
     REFRESHED = "refreshed"

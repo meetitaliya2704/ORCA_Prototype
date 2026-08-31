@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.clients.demo import DemoMarineSource
+from app.clients.copernicus_chlorophyll import CopernicusMarineChlorophyllProvider
 from app.clients.copernicus_sst import CopernicusMarineSSTProvider
 from app.clients.copernicus_waves import (
     COPERNICUS_WAVE_DATASET_VERSION,
@@ -20,6 +21,10 @@ from app.clients.ecmwf_wind import ECMWFOpenDataWindProvider
 from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
 from app.services.cache import MemoryJsonCache, RedisJsonCache
+from app.services.chlorophyll import (
+    CopernicusChlorophyllMarineSource,
+    CopernicusChlorophyllService,
+)
 from app.services.marine import MarineConditionsService
 from app.services.pfz import (
     PFZNearestService,
@@ -119,6 +124,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         wind_source = DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h")
         app.state.wind_service = None
 
+    if settings.chlorophyll_enabled:
+        chlorophyll_service = CopernicusChlorophyllService(
+            provider=CopernicusMarineChlorophyllProvider(),
+            cache=cache,
+            dataset_id=settings.chlorophyll_dataset_id,
+            dataset_version=settings.chlorophyll_dataset_version,
+            chlorophyll_variable=settings.chlorophyll_variable,
+            uncertainty_variable=settings.chlorophyll_uncertainty_variable,
+            flags_variable=settings.chlorophyll_flags_variable,
+            max_radius_km=settings.chlorophyll_max_radius_km,
+            fresh_ttl_seconds=settings.chlorophyll_cache_ttl_seconds,
+            max_stale_seconds=settings.chlorophyll_max_stale_seconds,
+            freshness_hours=settings.chlorophyll_freshness_hours,
+            high_uncertainty_percent=(
+                settings.chlorophyll_high_uncertainty_percent
+            ),
+        )
+        chlorophyll_source = CopernicusChlorophyllMarineSource(
+            chlorophyll_service
+        )
+        app.state.chlorophyll_service = chlorophyll_service
+    else:
+        chlorophyll_source = DemoMarineSource(
+            "chlorophyll",
+            "CHLOROPHYLL_A",
+            0.4,
+            "mg/m³",
+        )
+        app.state.chlorophyll_service = None
+
     if settings.ecmwf_wind_enabled:
         ecmwf_provider = ECMWFOpenDataWindProvider(
             model=settings.ecmwf_wind_model,
@@ -168,6 +203,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         sst_source,
         wave_source,
         wind_source,
+        chlorophyll_source,
     ]
 
     app.state.marine_service = MarineConditionsService(

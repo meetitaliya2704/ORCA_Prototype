@@ -1,0 +1,8 @@
+{
+  "dataset_id": "cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D",
+  "dataset_version": "202311",
+  "variable": "flags",
+  "flag_masks": [1, 2],
+  "flag_meanings": ["LAND", "INTERPOLATED"],
+  "flag_meanings_raw": "LAND INTERPOLATED"
+}

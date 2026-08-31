@@ -42,6 +42,18 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.copernicus_wind_northward_variable == "northward_wind"
     assert settings.copernicus_wind_search_radius_km == 50
     assert settings.copernicus_wind_max_age_hours == 30
+    assert settings.chlorophyll_enabled is False
+    assert (
+        settings.chlorophyll_dataset_id
+        == "cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D"
+    )
+    assert settings.chlorophyll_dataset_version == "202311"
+    assert settings.chlorophyll_variable == "CHL"
+    assert settings.chlorophyll_uncertainty_variable == "CHL_uncertainty"
+    assert settings.chlorophyll_flags_variable == "flags"
+    assert settings.chlorophyll_max_radius_km == 10
+    assert settings.chlorophyll_freshness_hours == 72
+    assert settings.chlorophyll_high_uncertainty_percent == 50
     assert settings.ecmwf_wind_enabled is False
     assert settings.ecmwf_wind_model == "ifs"
     assert settings.ecmwf_wind_resolution == "0p25"
@@ -160,6 +172,33 @@ def test_wind_search_radius_is_bounded(radius: float) -> None:
 def test_wind_max_age_is_bounded(max_age: float) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, copernicus_wind_max_age_hours=max_age)
+
+
+def test_chlorophyll_cache_ttls_must_be_ordered() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="CHLOROPHYLL_MAX_STALE_SECONDS must be greater",
+    ):
+        Settings(
+            _env_file=None,
+            chlorophyll_cache_ttl_seconds=60,
+            chlorophyll_max_stale_seconds=30,
+        )
+
+
+@pytest.mark.parametrize("radius", [0, 101])
+def test_chlorophyll_radius_is_bounded(radius: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, chlorophyll_max_radius_km=radius)
+
+
+@pytest.mark.parametrize("threshold", [-0.01, 100.01])
+def test_chlorophyll_uncertainty_threshold_is_bounded(threshold: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            chlorophyll_high_uncertainty_percent=threshold,
+        )
 
 
 @pytest.mark.parametrize("source", ["invalid", "ECMWF-SIGNED-URL"])
