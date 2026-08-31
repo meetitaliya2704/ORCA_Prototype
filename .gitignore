@@ -4,3 +4,7 @@ __pycache__/
 .env
 *.pyc
 *.egg-info/
+*.grib
+*.grib2
+*.idx
+*.part

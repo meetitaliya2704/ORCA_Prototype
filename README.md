@@ -44,7 +44,7 @@ REDIS_URL=redis://localhost:6379/0
 - Versioned FastAPI routes and typed Pydantic responses.
 - Shared asynchronous HTTPX infrastructure with timeouts and bounded retries.
 - Deterministic demonstration sources used when optional real adapters are
-  disabled; wind remains demonstration data.
+  disabled.
 - Concurrent marine-source execution with partial-failure results.
 - In-memory TTL caching by default and optional Redis caching.
 - An offline-tested INCOIS PFZ single-sector preview using a fresh session.
@@ -60,6 +60,8 @@ REDIS_URL=redis://localhost:6379/0
   selection, Kelvin-to-Celsius conversion, and source-specific caching.
 - Optional real Copernicus Marine total-wave analysis and forecast retrieval,
   including official cycle metadata and bounded coastal fallback.
+- Optional ECMWF Open Data IFS deterministic 10-metre wind forecasts with
+  direct ecCodes decoding, bounded mirror failover, and global-field reuse.
 - A demonstration WebSocket ingestion-progress stream.
 - Separate demonstration and PFZ command-line ingestion jobs.
 
@@ -70,6 +72,7 @@ Current endpoints:
 - `GET /v1/marine/sst?latitude=18.025&longitude=70.525&at=2026-08-27T00:00:00Z`
 - `GET /v1/marine/waves?latitude=18.025&longitude=70.525&at=2026-08-29T00:00:00Z`
 - `GET /v1/marine/wind?latitude=18.025&longitude=70.525&at=2026-08-29T12:45:00Z`
+- `GET /v1/marine/wind/forecast?latitude=18.025&longitude=70.525&at=2026-08-31T00:00:00Z`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
 - `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
@@ -266,6 +269,68 @@ codes `WIND_SOURCE_NOT_CONFIGURED`, `WIND_AUTHENTICATION_FAILED`,
 `WIND_SOURCE_UNAVAILABLE`, and `WIND_DATA_TOO_OLD`. Invalid coordinates or a
 timezone-naive timestamp return `422`.
 
+## ECMWF IFS wind forecast
+
+`GET /v1/marine/wind/forecast` is separate from the Copernicus recent-wind
+analysis endpoint. It requires decimal coordinates and a timezone-aware future
+`at` value. Responses explicitly identify the data as a numerical atmospheric
+forecast and expose forecast reference time, valid time, lead hours, mirror,
+licence, attribution, disclaimer, derived fields, and cache status.
+The explicit top-level contract includes `provider`, `selected_mirror`,
+`source_classification="numerical_forecast"`, requested and sampled decimal
+coordinates, `forecast_step`, `forecast_lead_hours`, and `requested_at`.
+
+Install the optional integration with:
+
+```powershell
+pip install -e ".[ecmwf]"
+python -m eccodes selfcheck
+```
+
+No ECMWF account or API key is required. The pinned optional stack is
+`ecmwf-opendata==0.3.34` plus `eccodes==2.48.0`. It was validated locally on
+Windows and Python 3.13, although ECMWF does not officially claim Windows
+support for this decoding stack. When disabled, neither package is imported.
+
+ORCA uses IFS Cycle 50r1 `oper` forecasts at 0.25 degrees. The 00/12 UTC cycles
+provide three-hour steps through hour 144 and six-hour steps from 150 through
+360. The 06/18 cycles provide three-hour steps through hour 144. The retired
+`scda` stream is never used. Cycle discovery comes from provider metadata, not
+the local clock; publication commonly trails cycle time and the rolling public
+archive contains only recent runs.
+
+Each request downloads only the selected `10u` and `10v` GRIB messages, but
+ECMWF does not offer server-side geographic subsetting: those two messages are
+global fields. ORCA decodes them directly with ecCodes, reads missing values
+from GRIB metadata, and stores compact immutable fields in a bounded
+process-local TTL/LRU cache. Different coordinates for the same cycle and step
+reuse that field. A separate JSON point cache supports fresh, refreshed, and
+strictly matching stale results. Primary `ecmwf` access has one configured
+`aws` fallback by default; retries, waits, download size, and total attempts are
+bounded. The official synchronous client does not expose separate HTTP phase
+timeouts, so ORCA validates connect/read budgets and enforces their sum as a
+hard wall-clock deadline. Mirror failover occurs only for transport or source
+availability failures, never for invalid requests or malformed GRIB content.
+
+ORCA derives speed, meteorological direction-from, compass label, point
+sampling, and Haversine distance from decoded ECMWF components. Finite land or
+coastal model cells are valid atmospheric forecasts and are never labelled as
+ocean observations. Forecast uncertainty increases with lead time.
+The calm threshold and the maximum supported 360-hour horizon are configurable;
+the default calm threshold is `0.001 m/s`.
+
+Stable forecast errors use ORCA's standard `{"detail":{"code","message"}}`
+envelope. Codes include `ECMWF_FORECAST_NOT_CONFIGURED`,
+`ECMWF_DEPENDENCY_MISSING`, `INVALID_FORECAST_TIME`,
+`FORECAST_OUT_OF_HORIZON`, `FORECAST_STEP_UNAVAILABLE`,
+`ECMWF_SOURCE_UNAVAILABLE`, `INVALID_ECMWF_RESPONSE`, and
+`NO_VALID_WIND_CELL`.
+
+ECMWF Open Data is CC BY 4.0. Responses carry the required attribution and
+liability disclaimer and identify ORCA's modifications. No IMD warnings or
+safety classifications are implemented, and ORCA is not official navigation
+advice.
+
 ## Setup
 
 Python 3.11 or newer is required.
@@ -280,6 +345,10 @@ Copy-Item .env.example .env
 The default install does not include Copernicus Marine. To enable real SST,
 waves, or wind, install `.[copernicus]`, configure a local Copernicus Marine
 login, and use the safe settings documented in `.env.example`.
+
+The default install also excludes ECMWF Open Data support. Install `.[ecmwf]`
+and set `ECMWF_WIND_ENABLED=true` to enable the forecast-only endpoint; no
+credentials are configured or required.
 
 Run the API:
 
@@ -349,6 +418,9 @@ python -m app.jobs.ingest_pfz
 - D3-0 and D3-1 complete: the global Level-4 NRT blended wind analysis was
   validated and integrated with deterministic speed/direction-from,
   maximum-age enforcement, caching, and partial-failure behavior.
+- D3-2-0 and D3-2-1 complete: ECMWF Open Data IFS deterministic wind was
+  qualified and integrated as a distinct future-forecast source with direct
+  GRIB decoding, Cycle 50r1 selection, bounded failover, and two-level caching.
 
 ### Checkpoint E — combined conditions and safety
 

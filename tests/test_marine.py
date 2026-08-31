@@ -22,8 +22,22 @@ from app.clients.copernicus_wind import (
     WindSourceUnavailableError,
 )
 from app.clients.demo import DemoMarineSource
+from app.clients.ecmwf_wind import (
+    ECMWFWindCycleUnavailableError,
+    ECMWFWindDataNotFoundError,
+    ECMWFWindDependencyMissingError,
+    ECMWFWindForecastOutOfRangeError,
+    ECMWFWindSourceUnavailableError,
+    ECMWFWindStepUnavailableError,
+    InvalidECMWFWindResponseError,
+)
 from app.main import app
-from app.schemas.marine import SSTResponse, WaveResponse, WindResponse
+from app.schemas.marine import (
+    ECMWFWindForecastResponse,
+    SSTResponse,
+    WaveResponse,
+    WindResponse,
+)
 from app.services.cache import MemoryJsonCache
 from app.services.marine import MarineConditionsService
 from app.services.sst import CopernicusSSTMarineSource, NoValidSSTError
@@ -38,6 +52,7 @@ from app.services.wind import (
     NoWindForecastAvailableError,
     WindDataTooOldError,
 )
+from app.services.wind_forecast import ECMWFWindPastRequestError
 
 
 def sst_response(
@@ -157,6 +172,51 @@ class FakeWindService:
         if self.error is not None:
             raise self.error
         return self.result
+
+
+def ecmwf_forecast_response() -> ECMWFWindForecastResponse:
+    return ECMWFWindForecastResponse.model_validate(
+        {
+            "requested_location": {"latitude": 18.025, "longitude": 70.525},
+            "sampled_location": {"latitude": 18.0, "longitude": 70.5},
+            "distance_km": 3.836,
+            "eastward_wind_mps": 9.768814,
+            "northward_wind_mps": 0.714493,
+            "wind_speed_mps": 9.794908,
+            "wind_direction_from_deg": 265.816825,
+            "compass_direction_from": "W",
+            "forecast_reference_time": "2026-08-30T00:00:00Z",
+            "forecast_lead_hours": 24,
+            "valid_time": "2026-08-31T00:00:00Z",
+            "requested_time": "2026-08-31T00:00:00Z",
+            "retrieved_at": "2026-08-30T09:30:00Z",
+            "source": {
+                "source_mirror": "ecmwf",
+                "copyright_statement": "This service is based on ECMWF data.",
+                "attribution": (
+                    "This service is based on data and products of the European "
+                    "Centre for Medium-Range Weather Forecasts (ECMWF)."
+                ),
+                "disclaimer": "ECMWF is not liable for ORCA-derived output.",
+                "modification_notice": "ORCA derived point wind values.",
+            },
+            "quality": "nearest_valid_grid_cell",
+            "freshness": "current_cycle",
+            "cache_status": "refreshed",
+        }
+    )
+
+
+class FakeECMWFForecastService:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.received = None
+
+    async def get_forecast(self, **kwargs):
+        self.received = kwargs
+        if self.error is not None:
+            raise self.error
+        return ecmwf_forecast_response()
 
 
 class FakeConditionsService:
@@ -690,3 +750,153 @@ def test_conditions_keep_wave_result_when_future_wind_is_unavailable() -> None:
         response.json()["sources"]["wind"]["error"]
         == "NO_WIND_FORECAST_AVAILABLE"
     )
+
+
+def test_typed_ecmwf_forecast_endpoint_accepts_decimal_coordinates() -> None:
+    service = FakeECMWFForecastService()
+    with TestClient(app) as client:
+        app.state.ecmwf_wind_service = service
+        response = client.get(
+            "/v1/marine/wind/forecast",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-31T00:00:00Z",
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["classification"] == "forecast"
+    assert response.json()["source_classification"] == "numerical_forecast"
+    assert response.json()["provider"] == "ECMWF"
+    assert response.json()["selected_mirror"] == "ecmwf"
+    assert response.json()["requested_latitude"] == 18.025
+    assert response.json()["requested_longitude"] == 70.525
+    assert response.json()["forecast_step"] == 24
+    assert response.json()["requested_at"] == "2026-08-31T00:00:00Z"
+    assert response.json()["source"]["provider"] == "ECMWF"
+    assert response.json()["source"]["licence"] == "CC BY 4.0"
+    assert service.received["latitude"] == 18.025
+    assert service.received["longitude"] == 70.525
+
+
+def test_ecmwf_forecast_endpoint_rejects_naive_time_and_boundaries() -> None:
+    with TestClient(app) as client:
+        app.state.ecmwf_wind_service = FakeECMWFForecastService()
+        naive = client.get(
+            "/v1/marine/wind/forecast",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-31T00:00:00",
+            },
+        )
+        invalid = client.get(
+            "/v1/marine/wind/forecast",
+            params={
+                "latitude": 90.01,
+                "longitude": -180.01,
+                "at": "2026-08-31T00:00:00Z",
+            },
+        )
+    assert naive.status_code == 422
+    assert invalid.status_code == 422
+
+
+def test_ecmwf_forecast_openapi_coordinates_are_numbers() -> None:
+    schema = app.openapi()
+    operation = schema["paths"]["/v1/marine/wind/forecast"]["get"]
+    parameters = {item["name"]: item for item in operation["parameters"]}
+    assert parameters["latitude"]["schema"]["type"] == "number"
+    assert parameters["longitude"]["schema"]["type"] == "number"
+    assert parameters["at"]["required"] is True
+
+
+def test_disabled_ecmwf_forecast_endpoint_is_not_configured() -> None:
+    with TestClient(app) as client:
+        app.state.ecmwf_wind_service = None
+        response = client.get(
+            "/v1/marine/wind/forecast",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-31T00:00:00Z",
+            },
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ECMWF_FORECAST_NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "code"),
+    [
+        (ECMWFWindPastRequestError("private"), 422, "INVALID_FORECAST_TIME"),
+        (
+            ECMWFWindForecastOutOfRangeError("private"),
+            404,
+            "FORECAST_OUT_OF_HORIZON",
+        ),
+        (
+            ECMWFWindStepUnavailableError("private"),
+            404,
+            "FORECAST_STEP_UNAVAILABLE",
+        ),
+        (ECMWFWindDataNotFoundError("private"), 404, "NO_VALID_WIND_CELL"),
+        (
+            InvalidECMWFWindResponseError("private"),
+            502,
+            "INVALID_ECMWF_RESPONSE",
+        ),
+        (
+            ECMWFWindDependencyMissingError("private"),
+            503,
+            "ECMWF_DEPENDENCY_MISSING",
+        ),
+        (
+            ECMWFWindCycleUnavailableError("private"),
+            503,
+            "ECMWF_SOURCE_UNAVAILABLE",
+        ),
+        (
+            ECMWFWindSourceUnavailableError("private"),
+            503,
+            "ECMWF_SOURCE_UNAVAILABLE",
+        ),
+    ],
+)
+def test_ecmwf_endpoint_maps_safe_typed_errors(
+    error: Exception,
+    status_code: int,
+    code: str,
+) -> None:
+    with TestClient(app) as client:
+        app.state.ecmwf_wind_service = FakeECMWFForecastService(error)
+        response = client.get(
+            "/v1/marine/wind/forecast",
+            params={
+                "latitude": 18.025,
+                "longitude": 70.525,
+                "at": "2026-08-31T00:00:00Z",
+            },
+        )
+    assert response.status_code == status_code
+    assert response.json()["detail"]["code"] == code
+    assert "private" not in response.json()["detail"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_combined_conditions_cache_isolates_same_day_forecast_times() -> None:
+    source = DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h")
+    service = MarineConditionsService(
+        client=None,
+        cache=MemoryJsonCache(),
+        sources=[source],
+        cache_ttl=300,
+    )
+    first = await service.get_conditions(
+        18.025, 70.525, datetime(2026, 8, 31, 3, tzinfo=UTC)
+    )
+    second = await service.get_conditions(
+        18.025, 70.525, datetime(2026, 8, 31, 6, tzinfo=UTC)
+    )
+    assert first.generated_at != second.generated_at
+    assert second.sources["wind"].cached is False

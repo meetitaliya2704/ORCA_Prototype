@@ -21,8 +21,19 @@ from app.clients.copernicus_wind import (
     WindSourceNotConfiguredError,
     WindSourceUnavailableError,
 )
+from app.clients.ecmwf_wind import (
+    ECMWFWindCycleUnavailableError,
+    ECMWFWindDataNotFoundError,
+    ECMWFWindDependencyMissingError,
+    ECMWFWindDownloadTooLargeError,
+    ECMWFWindForecastOutOfRangeError,
+    ECMWFWindSourceUnavailableError,
+    ECMWFWindStepUnavailableError,
+    InvalidECMWFWindResponseError,
+)
 from app.schemas.marine import (
     MarineConditionsResponse,
+    ECMWFWindForecastResponse,
     SSTQueryTime,
     SSTResponse,
     WaveResponse,
@@ -35,6 +46,7 @@ from app.services.wind import (
     NoWindForecastAvailableError,
     WindDataTooOldError,
 )
+from app.services.wind_forecast import ECMWFWindPastRequestError
 
 
 router = APIRouter(prefix="/marine", tags=["marine"])
@@ -288,5 +300,113 @@ async def get_wind(
             detail={
                 "code": "WIND_SOURCE_UNAVAILABLE",
                 "message": "Copernicus Marine wind source is unavailable",
+            },
+        ) from exc
+
+
+@router.get(
+    "/wind/forecast",
+    response_model=ECMWFWindForecastResponse,
+    responses={
+        404: {"description": "No compatible ECMWF forecast is available"},
+        422: {"description": "Coordinates or forecast time are invalid"},
+        502: {"description": "ECMWF returned an invalid forecast response"},
+        503: {"description": "ECMWF forecast support is unavailable"},
+    },
+)
+async def get_wind_forecast(
+    request: Request,
+    latitude: LatitudeQuery,
+    longitude: LongitudeQuery,
+    at: Annotated[
+        SSTQueryTime,
+        Query(description="Required future forecast time with timezone offset"),
+    ],
+) -> ECMWFWindForecastResponse:
+    service = request.app.state.ecmwf_wind_service
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "ECMWF_FORECAST_NOT_CONFIGURED",
+                "message": "ECMWF wind forecast integration is not enabled",
+            },
+        )
+    try:
+        return await service.get_forecast(
+            latitude=latitude,
+            longitude=longitude,
+            at=at,
+        )
+    except ECMWFWindPastRequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INVALID_FORECAST_TIME",
+                "message": "The ECMWF endpoint accepts future forecast times only",
+            },
+        ) from exc
+    except ECMWFWindForecastOutOfRangeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "FORECAST_OUT_OF_HORIZON",
+                "message": "Requested time exceeds the available IFS horizon",
+            },
+        ) from exc
+    except ECMWFWindStepUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "FORECAST_STEP_UNAVAILABLE",
+                "message": "No ECMWF forecast step satisfies the requested time",
+            },
+        ) from exc
+    except ECMWFWindDataNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NO_VALID_WIND_CELL",
+                "message": "No valid ECMWF wind component pair was found",
+            },
+        ) from exc
+    except ECMWFWindDownloadTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "ECMWF_WIND_DOWNLOAD_TOO_LARGE",
+                "message": "ECMWF wind response exceeded the configured size limit",
+            },
+        ) from exc
+    except InvalidECMWFWindResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "INVALID_ECMWF_RESPONSE",
+                "message": "ECMWF returned an invalid wind forecast response",
+            },
+        ) from exc
+    except ECMWFWindDependencyMissingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "ECMWF_DEPENDENCY_MISSING",
+                "message": "Optional ECMWF wind forecast packages are not installed",
+            },
+        ) from exc
+    except ECMWFWindCycleUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "ECMWF_SOURCE_UNAVAILABLE",
+                "message": "No completed ECMWF forecast cycle could be resolved",
+            },
+        ) from exc
+    except ECMWFWindSourceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "ECMWF_SOURCE_UNAVAILABLE",
+                "message": "ECMWF wind forecast source is unavailable",
             },
         ) from exc

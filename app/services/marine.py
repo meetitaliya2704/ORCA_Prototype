@@ -31,7 +31,7 @@ class MarineConditionsService:
         longitude: float,
         at: datetime | None = None,
     ) -> MarineConditionsResponse:
-        time_bucket = at.astimezone(UTC).date().isoformat() if at else "current"
+        time_bucket = at.astimezone(UTC).isoformat() if at else "current"
         cache_key = (
             f"conditions:{latitude:.6f}:{longitude:.6f}:{time_bucket}"
         )

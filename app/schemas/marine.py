@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
@@ -233,4 +233,157 @@ class WindResponse(BaseModel):
             self.wind_direction_from.compass is None
         ):
             raise ValueError("wind direction value and compass must both be null")
+        return self
+
+
+class ECMWFWindCacheStatus(StrEnum):
+    FRESH = "fresh"
+    REFRESHED = "refreshed"
+    STALE = "stale"
+
+
+class ECMWFWindFreshness(StrEnum):
+    CURRENT_CYCLE = "current_cycle"
+    STALE_CYCLE = "stale_cycle"
+
+
+class ECMWFWindQuality(StrEnum):
+    EXACT_GRID_CELL = "exact_grid_cell"
+    NEAREST_VALID_GRID_CELL = "nearest_valid_grid_cell"
+
+
+class ECMWFWindSourceMetadata(BaseModel):
+    provider: Literal["ECMWF"] = "ECMWF"
+    model: Literal["IFS"] = "IFS"
+    resolution_degrees: Literal[0.25] = 0.25
+    classification: Literal["forecast"] = "forecast"
+    source_mirror: Literal["ecmwf", "aws", "azure", "google"]
+    source_url: Literal["https://www.ecmwf.int/"] = "https://www.ecmwf.int/"
+    licence: Literal["CC BY 4.0"] = "CC BY 4.0"
+    licence_url: Literal["https://creativecommons.org/licenses/by/4.0/"] = (
+        "https://creativecommons.org/licenses/by/4.0/"
+    )
+    copyright_statement: str = Field(min_length=1)
+    attribution: str = Field(min_length=1)
+    disclaimer: str = Field(min_length=1)
+    modification_notice: str = Field(min_length=1)
+
+
+class ECMWFWindForecastResponse(BaseModel):
+    provider: Literal["ECMWF"] = "ECMWF"
+    selected_mirror: Literal["ecmwf", "aws", "azure", "google"]
+    model: Literal["IFS"] = "IFS"
+    resolution_degrees: Literal[0.25] = 0.25
+    source_classification: Literal["numerical_forecast"] = "numerical_forecast"
+    requested_latitude: float = Field(ge=-90, le=90)
+    requested_longitude: float = Field(ge=-180, le=180)
+    sampled_latitude: float = Field(ge=-90, le=90)
+    sampled_longitude: float = Field(ge=-180, lt=180)
+    classification: Literal["forecast"] = "forecast"
+    requested_location: SSTLocation
+    sampled_location: SSTLocation
+    distance_km: float = Field(ge=0)
+    eastward_wind_mps: float
+    northward_wind_mps: float
+    speed_mps: float = Field(ge=0)
+    wind_speed_mps: float = Field(ge=0)
+    direction_from_degrees: float | None = Field(default=None, ge=0, lt=360)
+    wind_direction_from_deg: float | None = Field(default=None, ge=0, lt=360)
+    compass_direction_from: (
+        Literal["N", "NE", "E", "SE", "S", "SW", "W", "NW"] | None
+    ) = None
+    forecast_reference_time: datetime
+    forecast_step: int = Field(ge=0, le=360)
+    forecast_lead_hours: int = Field(ge=0, le=360)
+    valid_time: datetime
+    requested_at: datetime
+    requested_time: datetime
+    retrieved_at: datetime
+    source: ECMWFWindSourceMetadata
+    quality: ECMWFWindQuality
+    freshness: ECMWFWindFreshness
+    cache_status: ECMWFWindCacheStatus
+    warnings: list[str] = Field(default_factory=list)
+    derived_fields: list[str] = Field(
+        default_factory=lambda: [
+            "wind_speed_mps",
+            "wind_direction_from_deg",
+            "compass_direction_from",
+            "sampled_location",
+            "distance_km",
+        ]
+    )
+    notice: Literal[
+        "Numerical atmospheric-model forecast; uncertainty increases with lead time. "
+        "Not an observation or navigation advice."
+    ] = (
+        "Numerical atmospheric-model forecast; uncertainty increases with lead time. "
+        "Not an observation or navigation advice."
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_explicit_contract_fields(cls, value: Any) -> Any:
+        """Accept pre-contract cached records while serializing explicit fields."""
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        requested = data.get("requested_location") or {}
+        sampled = data.get("sampled_location") or {}
+        source = data.get("source") or {}
+        if isinstance(requested, BaseModel):
+            requested = requested.model_dump()
+        if isinstance(sampled, BaseModel):
+            sampled = sampled.model_dump()
+        if isinstance(source, BaseModel):
+            source = source.model_dump()
+        data.setdefault("selected_mirror", source.get("source_mirror"))
+        data.setdefault("requested_latitude", requested.get("latitude"))
+        data.setdefault("requested_longitude", requested.get("longitude"))
+        data.setdefault("sampled_latitude", sampled.get("latitude"))
+        data.setdefault("sampled_longitude", sampled.get("longitude"))
+        data.setdefault("speed_mps", data.get("wind_speed_mps"))
+        data.setdefault(
+            "direction_from_degrees", data.get("wind_direction_from_deg")
+        )
+        data.setdefault("forecast_step", data.get("forecast_lead_hours"))
+        data.setdefault("requested_at", data.get("requested_time"))
+        return data
+
+    @model_validator(mode="after")
+    def forecast_metadata_is_consistent(self) -> "ECMWFWindForecastResponse":
+        timestamps = (
+            self.forecast_reference_time,
+            self.valid_time,
+            self.requested_time,
+            self.retrieved_at,
+        )
+        if any(value.tzinfo is None or value.utcoffset() is None for value in timestamps):
+            raise ValueError("ECMWF forecast timestamps must be timezone-aware")
+        expected = self.forecast_reference_time + timedelta(
+            hours=self.forecast_lead_hours
+        )
+        if expected != self.valid_time:
+            raise ValueError("forecast reference plus lead must equal valid time")
+        if self.forecast_step != self.forecast_lead_hours:
+            raise ValueError("forecast step and lead hours must match")
+        if self.requested_at != self.requested_time:
+            raise ValueError("requested forecast timestamps must match")
+        if (
+            self.requested_latitude != self.requested_location.latitude
+            or self.requested_longitude != self.requested_location.longitude
+            or self.sampled_latitude != self.sampled_location.latitude
+            or self.sampled_longitude != self.sampled_location.longitude
+        ):
+            raise ValueError("flat and structured forecast coordinates must match")
+        if self.speed_mps != self.wind_speed_mps:
+            raise ValueError("forecast speed fields must match")
+        if self.direction_from_degrees != self.wind_direction_from_deg:
+            raise ValueError("forecast direction fields must match")
+        if self.selected_mirror != self.source.source_mirror:
+            raise ValueError("selected mirror must match source metadata")
+        if (self.wind_direction_from_deg is None) != (
+            self.compass_direction_from is None
+        ):
+            raise ValueError("forecast wind direction and compass must both be null")
         return self

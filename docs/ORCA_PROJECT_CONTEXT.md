@@ -24,8 +24,8 @@ ORCA is decision support, not certified navigation advice.
 
 ## Current implementation status
 
-- Checkpoints A, B, C, D0, D1, D2-0, D2-1, D3-0, and D3-1 are complete with
-  235 offline tests passing.
+- Checkpoints A, B, C, D0, D1, D2-0, D2-1, D3-0, D3-1, D3-2-0, and D3-2-1
+  are complete with 301 offline tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -45,6 +45,10 @@ ORCA is decision support, not certified navigation advice.
   behind its own optional flag. It derives speed and meteorological direction
   from decoded components, enforces ORCA's 30-hour freshness policy, and never
   presents the source as a forecast.
+- Checkpoints D3-2-0 and D3-2-1 qualify and integrate ECMWF Open Data IFS
+  deterministic 10-metre wind as a separate future-forecast source. It uses
+  direct ecCodes decoding, Cycle 50r1 metadata, bounded ECMWF/AWS failover,
+  and field plus point caches; Copernicus remains the recent analysis source.
 
 ## 3. Current repository baseline
 
@@ -370,6 +374,49 @@ Each adapter should return a normalized structure containing:
 
 Large NetCDF, Zarr, GRIB, or GeoTIFF products must not be downloaded completely for every user request. Prefer provider-supported spatial/temporal subsetting, cache the small normalized result needed for the query, and keep adapters source-specific.
 
+### Implemented ECMWF IFS deterministic wind forecast
+
+- Endpoint: `GET /v1/marine/wind/forecast` with required timezone-aware future
+  `at`, separate from `/v1/marine/wind` recent blended analysis.
+- Source: ECMWF Open Data, IFS deterministic `oper`, 0.25-degree GRIB2,
+  parameters `10u` and `10v`, without authentication.
+- Cycle 50r1: 00/12 cycles provide steps 0-144 every three hours and 150-360
+  every six hours; 06/18 provide steps 0-144 every three hours. `scda` is not
+  used. Provider metadata, rather than the wall clock, resolves completed runs.
+- Retrieval selects only the two wind messages for one cycle/step. There is no
+  server-side spatial subset, so the decoded field remains global.
+- Direct ecCodes decoding validates GRIB edition, component identity, cycle,
+  lead, valid time, regular grid, 0.25-degree increments, ordering, dimensions,
+  units, and metadata-declared missing values. Temporary files are isolated and
+  removed after completed provider work.
+- Spatial sampling normalizes longitude to `[-180, 180)`, handles dateline
+  wrapping and descending latitude, requires a finite u/v pair, and uses
+  full-precision Haversine distance with coordinate tie-breaks.
+- ORCA deterministically derives speed and meteorological direction-from;
+  effectively calm wind has null direction and compass fields.
+- The process-local field cache is bounded by TTL, LRU entry count, and bytes.
+  Its canonical identity excludes mirror, allowing coordinates and ECMWF/AWS
+  retrievals to reuse an equivalent field. The JSON point cache is isolated by
+  cycle, step, valid time, and six-decimal coordinates.
+- Source attempts use bounded client retries, validated connect/read budgets
+  enforced as one hard deadline around the synchronous official client, one
+  primary, and at most one fallback. Failover is restricted to transport and
+  source-availability failures. Raw provider URLs, signed URLs, temporary paths,
+  and exceptions are excluded from API responses.
+- Responses include explicit `numerical_forecast` classification,
+  reference/valid/requested times, forecast step and lead, selected mirror,
+  CC BY 4.0 attribution, ECMWF's liability disclaimer, and notice of
+  ORCA-derived fields. Public errors distinguish invalid/past time, horizon,
+  unavailable step/source, invalid response, missing dependency, and no valid
+  wind cell.
+- Windows/Python 3.13 was validated with optional versions
+  `ecmwf-opendata==0.3.34` and `eccodes==2.48.0`; Windows support is not claimed
+  by ECMWF. The default application imports neither package.
+- The maximum horizon and effectively-calm threshold are validated settings;
+  the qualified default horizon remains 360 hours. Forecast uncertainty
+  increases with lead time. This checkpoint adds no IMD
+  warnings, safety classification, or navigation advice.
+
 GeoPandas may be used for local vector-file operations, CRS transformation, joins, clipping, and geofence checks. It is not required for simple Haversine nearest-PFZ calculation.
 
 ## 10. Partial failure and safety behavior
@@ -470,6 +517,13 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 - Because wind components may contain uncorrected model values over land and
   coastal cells, quality labels refer to valid grid cells rather than ocean
   cells and responses preserve a source-context warning.
+- D3-2-0 complete: ECMWF Open Data access, current Cycle 50r1 schedules, IFS
+  0.25-degree wind fields, direct decoder compatibility, and mirror behavior
+  were qualified.
+- D3-2-1 complete: typed future wind endpoint, cycle-aware selection, direct
+  ecCodes decoding, deterministic grid sampling, bounded failover, field/point
+  caching, attribution, and future selection in combined conditions are
+  implemented. Copernicus recent wind remains unchanged.
 
 ### Checkpoint E — combined conditions and safety
 
@@ -497,5 +551,5 @@ The next milestone is complete when:
 - Provider failure returns stale data clearly when available, otherwise a typed error.
 - All normal tests pass without internet access.
 
-Checkpoint D2-1 completes the first real wave adapter. Further source or safety
-work requires a separately approved checkpoint.
+Checkpoint D3-2-1 completes the deterministic future-wind adapter. Further
+source or safety work requires a separately approved checkpoint.

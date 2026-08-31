@@ -16,6 +16,7 @@ from app.clients.copernicus_wind import (
     COPERNICUS_WIND_DATASET_VERSION,
     CopernicusMarineWindProvider,
 )
+from app.clients.ecmwf_wind import ECMWFOpenDataWindProvider
 from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
 from app.services.cache import MemoryJsonCache, RedisJsonCache
@@ -28,6 +29,12 @@ from app.services.pfz import (
 from app.services.sst import CopernicusSSTMarineSource, CopernicusSSTService
 from app.services.waves import CopernicusWaveMarineSource, CopernicusWaveService
 from app.services.wind import CopernicusWindMarineSource, CopernicusWindService
+from app.services.wind_forecast import (
+    BoundedWindFieldCache,
+    ECMWFWindForecastService,
+    ECMWFWindMarineSource,
+    TimeSelectingWindMarineSource,
+)
 
 
 settings = get_settings()
@@ -111,6 +118,51 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         wind_source = DemoMarineSource("wind", "WIND_SPEED", 18.0, "km/h")
         app.state.wind_service = None
+
+    if settings.ecmwf_wind_enabled:
+        ecmwf_provider = ECMWFOpenDataWindProvider(
+            model=settings.ecmwf_wind_model,
+            resolution=settings.ecmwf_wind_resolution,
+            u_parameter=settings.ecmwf_wind_u_parameter,
+            v_parameter=settings.ecmwf_wind_v_parameter,
+            maximum_retries=settings.ecmwf_wind_max_retries,
+            retry_initial_seconds=settings.ecmwf_wind_retry_initial_seconds,
+            retry_max_seconds=settings.ecmwf_wind_retry_max_seconds,
+            total_timeout_seconds=(
+                settings.ecmwf_wind_connect_timeout_seconds
+                + settings.ecmwf_wind_read_timeout_seconds
+            ),
+            max_download_bytes=settings.ecmwf_wind_max_download_bytes,
+        )
+        ecmwf_wind_service = ECMWFWindForecastService(
+            provider=ecmwf_provider,
+            point_cache=cache,
+            field_cache=BoundedWindFieldCache(
+                ttl_seconds=settings.ecmwf_wind_field_cache_ttl_seconds,
+                max_entries=settings.ecmwf_wind_field_cache_max_entries,
+                max_bytes=settings.ecmwf_wind_field_cache_max_bytes,
+            ),
+            primary_source=settings.ecmwf_wind_primary_source,
+            fallback_source=(
+                settings.ecmwf_wind_fallback_source.strip() or None
+            ),
+            cycle_cache_ttl_seconds=settings.ecmwf_wind_cycle_cache_ttl_seconds,
+            cycle_stale_ttl_seconds=settings.ecmwf_wind_cycle_stale_ttl_seconds,
+            point_cache_ttl_seconds=settings.ecmwf_wind_point_cache_ttl_seconds,
+            point_stale_ttl_seconds=settings.ecmwf_wind_point_stale_ttl_seconds,
+            max_stale_cycle_age_hours=(
+                settings.ecmwf_wind_max_stale_cycle_age_hours
+            ),
+            calm_threshold_mps=settings.ecmwf_wind_calm_threshold_mps,
+            max_horizon_hours=settings.ecmwf_wind_max_horizon_hours,
+        )
+        wind_source = TimeSelectingWindMarineSource(
+            wind_source,
+            ECMWFWindMarineSource(ecmwf_wind_service),
+        )
+        app.state.ecmwf_wind_service = ecmwf_wind_service
+    else:
+        app.state.ecmwf_wind_service = None
 
     sources = [
         sst_source,

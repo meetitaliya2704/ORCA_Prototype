@@ -42,6 +42,17 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.copernicus_wind_northward_variable == "northward_wind"
     assert settings.copernicus_wind_search_radius_km == 50
     assert settings.copernicus_wind_max_age_hours == 30
+    assert settings.ecmwf_wind_enabled is False
+    assert settings.ecmwf_wind_model == "ifs"
+    assert settings.ecmwf_wind_resolution == "0p25"
+    assert settings.ecmwf_wind_u_parameter == "10u"
+    assert settings.ecmwf_wind_v_parameter == "10v"
+    assert settings.ecmwf_wind_primary_source == "ecmwf"
+    assert settings.ecmwf_wind_fallback_source == "aws"
+    assert settings.ecmwf_wind_connect_timeout_seconds == 10
+    assert settings.ecmwf_wind_read_timeout_seconds == 50
+    assert settings.ecmwf_wind_calm_threshold_mps == 0.001
+    assert settings.ecmwf_wind_max_horizon_hours == 360
 
 
 def test_enabled_redis_requires_a_url() -> None:
@@ -149,3 +160,62 @@ def test_wind_search_radius_is_bounded(radius: float) -> None:
 def test_wind_max_age_is_bounded(max_age: float) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, copernicus_wind_max_age_hours=max_age)
+
+
+@pytest.mark.parametrize("source", ["invalid", "ECMWF-SIGNED-URL"])
+def test_ecmwf_sources_are_validated(source: str) -> None:
+    with pytest.raises(ValidationError, match="PRIMARY_SOURCE"):
+        Settings(_env_file=None, ecmwf_wind_primary_source=source)
+
+
+def test_ecmwf_fallback_may_be_empty_but_must_differ() -> None:
+    assert Settings(_env_file=None, ecmwf_wind_fallback_source="").ecmwf_wind_fallback_source == ""
+    with pytest.raises(ValidationError, match="must differ"):
+        Settings(
+            _env_file=None,
+            ecmwf_wind_primary_source="aws",
+            ecmwf_wind_fallback_source="aws",
+        )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"ecmwf_wind_model": "aifs"},
+        {"ecmwf_wind_resolution": "0p4"},
+        {"ecmwf_wind_u_parameter": "u"},
+        {"ecmwf_wind_v_parameter": "v"},
+    ],
+)
+def test_unsupported_ecmwf_product_configuration_is_rejected(overrides) -> None:
+    with pytest.raises(ValidationError, match="Unsupported ECMWF"):
+        Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"ecmwf_wind_connect_timeout_seconds": 0},
+        {"ecmwf_wind_read_timeout_seconds": 0},
+        {"ecmwf_wind_calm_threshold_mps": -0.1},
+        {"ecmwf_wind_max_horizon_hours": 361},
+    ],
+)
+def test_ecmwf_operational_bounds_are_validated(overrides) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
+
+
+def test_ecmwf_cache_windows_and_retry_bounds_are_validated() -> None:
+    with pytest.raises(ValidationError, match="cycle stale TTL"):
+        Settings(
+            _env_file=None,
+            ecmwf_wind_cycle_cache_ttl_seconds=60,
+            ecmwf_wind_cycle_stale_ttl_seconds=30,
+        )
+    with pytest.raises(ValidationError, match="retry maximum"):
+        Settings(
+            _env_file=None,
+            ecmwf_wind_retry_initial_seconds=5,
+            ecmwf_wind_retry_max_seconds=1,
+        )

@@ -17,6 +17,10 @@ class BlockOptionalPackages(importlib.abc.MetaPathFinder):
             or fullname.startswith("redis.")
             or fullname == "copernicusmarine"
             or fullname.startswith("copernicusmarine.")
+            or fullname == "ecmwf"
+            or fullname.startswith("ecmwf.")
+            or fullname == "eccodes"
+            or fullname.startswith("eccodes.")
         ):
             raise ModuleNotFoundError(f"{fullname} intentionally unavailable")
         return None
@@ -31,6 +35,8 @@ async def verify_startup():
         assert type(cache).__name__ == "MemoryJsonCache"
         assert "redis" not in sys.modules
         assert "copernicusmarine" not in sys.modules
+        assert "ecmwf" not in sys.modules
+        assert "eccodes" not in sys.modules
 
 asyncio.run(verify_startup())
 """
@@ -181,6 +187,62 @@ with TestClient(app) as client:
     environment["REDIS_ENABLED"] = "false"
     environment.pop("COPERNICUSMARINE_SERVICE_USERNAME", None)
     environment.pop("COPERNICUSMARINE_SERVICE_PASSWORD", None)
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_enabled_ecmwf_missing_optional_packages_is_controlled(
+    tmp_path: Path,
+) -> None:
+    script = r"""
+import importlib.abc
+import sys
+
+class BlockECMWF(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if (
+            fullname == "ecmwf"
+            or fullname.startswith("ecmwf.")
+            or fullname == "eccodes"
+            or fullname.startswith("eccodes.")
+        ):
+            raise ModuleNotFoundError(f"{fullname} intentionally unavailable")
+        return None
+
+sys.meta_path.insert(0, BlockECMWF())
+
+from fastapi.testclient import TestClient
+from app.main import app
+
+with TestClient(app) as client:
+    assert "ecmwf" not in sys.modules
+    assert "eccodes" not in sys.modules
+    response = client.get(
+        "/v1/marine/wind/forecast",
+        params={
+            "latitude": 18.025,
+            "longitude": 70.525,
+            "at": "2026-08-31T00:00:00Z",
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ECMWF_DEPENDENCY_MISSING"
+"""
+    environment = os.environ.copy()
+    environment["COPERNICUS_SST_ENABLED"] = "false"
+    environment["COPERNICUS_WAVES_ENABLED"] = "false"
+    environment["COPERNICUS_WIND_ENABLED"] = "false"
+    environment["ECMWF_WIND_ENABLED"] = "true"
+    environment["REDIS_ENABLED"] = "false"
 
     result = subprocess.run(
         [sys.executable, "-c", script],

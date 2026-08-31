@@ -93,6 +93,44 @@ class Settings(BaseSettings):
         le=2592000,
     )
 
+    ecmwf_wind_enabled: bool = False
+    ecmwf_wind_model: str = "ifs"
+    ecmwf_wind_resolution: str = "0p25"
+    ecmwf_wind_u_parameter: str = "10u"
+    ecmwf_wind_v_parameter: str = "10v"
+    ecmwf_wind_primary_source: str = "ecmwf"
+    ecmwf_wind_fallback_source: str = "aws"
+    ecmwf_wind_max_retries: int = Field(default=2, ge=0, le=5)
+    ecmwf_wind_retry_initial_seconds: float = Field(default=1.0, gt=0, le=10)
+    ecmwf_wind_retry_max_seconds: float = Field(default=8.0, gt=0, le=30)
+    ecmwf_wind_connect_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    ecmwf_wind_read_timeout_seconds: float = Field(default=50.0, gt=0, le=300)
+    ecmwf_wind_calm_threshold_mps: float = Field(default=0.001, ge=0, le=1)
+    ecmwf_wind_max_horizon_hours: int = Field(default=360, ge=144, le=360)
+    ecmwf_wind_cycle_cache_ttl_seconds: int = Field(default=900, ge=1, le=86400)
+    ecmwf_wind_cycle_stale_ttl_seconds: int = Field(
+        default=3600, ge=1, le=172800
+    )
+    ecmwf_wind_field_cache_ttl_seconds: int = Field(
+        default=3600, ge=1, le=86400
+    )
+    ecmwf_wind_field_cache_max_entries: int = Field(default=3, ge=1, le=12)
+    ecmwf_wind_field_cache_max_bytes: int = Field(
+        default=67108864, ge=1048576, le=536870912
+    )
+    ecmwf_wind_point_cache_ttl_seconds: int = Field(
+        default=3600, ge=1, le=86400
+    )
+    ecmwf_wind_point_stale_ttl_seconds: int = Field(
+        default=21600, ge=1, le=604800
+    )
+    ecmwf_wind_max_stale_cycle_age_hours: float = Field(
+        default=24.0, gt=0, le=72
+    )
+    ecmwf_wind_max_download_bytes: int = Field(
+        default=10485760, ge=1048576, le=104857600
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -150,6 +188,41 @@ class Settings(BaseSettings):
                 "COPERNICUS_WIND_STALE_TTL_SECONDS must be greater than or "
                 "equal to COPERNICUS_WIND_CACHE_TTL_SECONDS"
             )
+        return self
+
+    @model_validator(mode="after")
+    def ecmwf_configuration_is_valid(self) -> "Settings":
+        allowed_sources = {"ecmwf", "aws", "azure", "google"}
+        fallback = self.ecmwf_wind_fallback_source.strip().lower()
+        primary = self.ecmwf_wind_primary_source.strip().lower()
+        if primary not in allowed_sources:
+            raise ValueError("ECMWF_WIND_PRIMARY_SOURCE is unsupported")
+        if fallback and fallback not in allowed_sources:
+            raise ValueError("ECMWF_WIND_FALLBACK_SOURCE is unsupported")
+        if fallback and fallback == primary:
+            raise ValueError("ECMWF primary and fallback sources must differ")
+        if (
+            self.ecmwf_wind_model != "ifs"
+            or self.ecmwf_wind_resolution != "0p25"
+            or self.ecmwf_wind_u_parameter != "10u"
+            or self.ecmwf_wind_v_parameter != "10v"
+        ):
+            raise ValueError("Unsupported ECMWF IFS wind configuration")
+        if (
+            self.ecmwf_wind_retry_max_seconds
+            < self.ecmwf_wind_retry_initial_seconds
+        ):
+            raise ValueError("ECMWF retry maximum must not be less than initial")
+        if (
+            self.ecmwf_wind_cycle_stale_ttl_seconds
+            < self.ecmwf_wind_cycle_cache_ttl_seconds
+        ):
+            raise ValueError("ECMWF cycle stale TTL must cover the fresh TTL")
+        if (
+            self.ecmwf_wind_point_stale_ttl_seconds
+            < self.ecmwf_wind_point_cache_ttl_seconds
+        ):
+            raise ValueError("ECMWF point stale TTL must cover the fresh TTL")
         return self
 
 
