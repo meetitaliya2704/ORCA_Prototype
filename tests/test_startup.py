@@ -315,3 +315,35 @@ with TestClient(app) as client:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_enabled_currents_missing_optional_package_is_controlled(tmp_path: Path) -> None:
+    script = r"""
+import importlib.abc
+import sys
+
+class BlockCopernicus(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "copernicusmarine" or fullname.startswith("copernicusmarine."):
+            raise ModuleNotFoundError("copernicusmarine intentionally unavailable")
+        return None
+
+sys.meta_path.insert(0, BlockCopernicus())
+from fastapi.testclient import TestClient
+from app.main import app
+with TestClient(app) as client:
+    assert "copernicusmarine" not in sys.modules
+    assert "/v1/marine/currents" in client.get("/openapi.json").json()["paths"]
+    response = client.get("/v1/marine/currents", params={"latitude":18.025,"longitude":70.525,"at":"2026-08-31T22:00:00Z"})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "CURRENT_DEPENDENCY_MISSING"
+"""
+    environment = os.environ.copy()
+    environment.update({
+        "COPERNICUS_SST_ENABLED":"false", "COPERNICUS_WAVES_ENABLED":"false",
+        "COPERNICUS_WIND_ENABLED":"false", "ECMWF_WIND_ENABLED":"false",
+        "CHLOROPHYLL_ENABLED":"false", "COPERNICUS_CURRENTS_ENABLED":"true",
+        "REDIS_ENABLED":"false",
+    })
+    result = subprocess.run([sys.executable,"-c",script],cwd=tmp_path,env=environment,capture_output=True,text=True,check=False)
+    assert result.returncode == 0, result.stderr

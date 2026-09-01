@@ -7,6 +7,10 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.clients.demo import DemoMarineSource
 from app.clients.copernicus_chlorophyll import CopernicusMarineChlorophyllProvider
+from app.clients.copernicus_currents import (
+    CopernicusCurrentMetadataResolver,
+    CopernicusMarineCurrentProvider,
+)
 from app.clients.copernicus_sst import CopernicusMarineSSTProvider
 from app.clients.copernicus_waves import (
     COPERNICUS_WAVE_DATASET_VERSION,
@@ -24,6 +28,10 @@ from app.services.cache import MemoryJsonCache, RedisJsonCache
 from app.services.chlorophyll import (
     CopernicusChlorophyllMarineSource,
     CopernicusChlorophyllService,
+)
+from app.services.currents import (
+    CopernicusCurrentMarineSource,
+    CopernicusCurrentService,
 )
 from app.services.marine import MarineConditionsService
 from app.services.pfz import (
@@ -154,6 +162,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.chlorophyll_service = None
 
+    if settings.copernicus_currents_enabled:
+        current_service = CopernicusCurrentService(
+            provider=CopernicusMarineCurrentProvider(),
+            metadata_resolver=CopernicusCurrentMetadataResolver(),
+            cache=cache,
+            dataset_id=settings.copernicus_currents_dataset_id,
+            dataset_version=settings.copernicus_currents_dataset_version,
+            static_dataset_id=settings.copernicus_currents_static_dataset_id,
+            static_dataset_version=settings.copernicus_currents_static_dataset_version,
+            max_radius_km=settings.copernicus_currents_max_radius_km,
+            calm_threshold_mps=settings.copernicus_currents_calm_threshold_mps,
+            time_tolerance_hours=settings.copernicus_currents_time_tolerance_hours,
+            component_tolerance_mps=settings.copernicus_currents_component_tolerance_mps,
+            fresh_ttl_seconds=settings.copernicus_currents_cache_ttl_seconds,
+            stale_ttl_seconds=settings.copernicus_currents_stale_ttl_seconds,
+            max_horizon_hours=settings.copernicus_currents_max_horizon_hours,
+        )
+        current_source = CopernicusCurrentMarineSource(current_service)
+        app.state.current_service = current_service
+    else:
+        current_source = DemoMarineSource(
+            "currents", "TOTAL_SURFACE_CURRENT_SPEED", 0.2, "m/s"
+        )
+        app.state.current_service = None
+
     if settings.ecmwf_wind_enabled:
         ecmwf_provider = ECMWFOpenDataWindProvider(
             model=settings.ecmwf_wind_model,
@@ -204,6 +237,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         wave_source,
         wind_source,
         chlorophyll_source,
+        current_source,
     ]
 
     app.state.marine_service = MarineConditionsService(

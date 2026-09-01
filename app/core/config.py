@@ -123,6 +123,27 @@ class Settings(BaseSettings):
         le=100,
     )
 
+    copernicus_currents_enabled: bool = False
+    copernicus_currents_dataset_id: str = Field(
+        default="cmems_mod_glo_phy_anfc_merged-uv_PT1H-i", min_length=1
+    )
+    copernicus_currents_dataset_version: str = Field(default="202211", min_length=1)
+    copernicus_currents_static_dataset_id: str = Field(
+        default="cmems_mod_glo_phy_anfc_0.083deg_static", min_length=1
+    )
+    copernicus_currents_static_dataset_version: str = Field(
+        default="202211", min_length=1
+    )
+    copernicus_currents_max_radius_km: float = Field(default=15.0, gt=0, le=100)
+    copernicus_currents_calm_threshold_mps: float = Field(default=0.001, ge=0, le=1)
+    copernicus_currents_time_tolerance_hours: float = Field(default=1.0, gt=0, le=6)
+    copernicus_currents_component_tolerance_mps: float = Field(
+        default=0.002, gt=0, le=0.1
+    )
+    copernicus_currents_cache_ttl_seconds: int = Field(default=1800, ge=1, le=86400)
+    copernicus_currents_stale_ttl_seconds: int = Field(default=21600, ge=1, le=604800)
+    copernicus_currents_max_horizon_hours: int = Field(default=240, ge=1, le=240)
+
     ecmwf_wind_enabled: bool = False
     ecmwf_wind_model: str = "ifs"
     ecmwf_wind_resolution: str = "0p25"
@@ -229,6 +250,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "CHLOROPHYLL_MAX_STALE_SECONDS must be greater than or equal "
                 "to CHLOROPHYLL_CACHE_TTL_SECONDS"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def current_cache_windows_are_ordered(self) -> "Settings":
+        if (
+            self.copernicus_currents_stale_ttl_seconds
+            < self.copernicus_currents_cache_ttl_seconds
+        ):
+            raise ValueError(
+                "COPERNICUS_CURRENTS_STALE_TTL_SECONDS must be greater than or "
+                "equal to COPERNICUS_CURRENTS_CACHE_TTL_SECONDS"
             )
         return self
 

@@ -172,6 +172,110 @@ class ChlorophyllResponse(BaseModel):
         return self
 
 
+class CurrentCacheStatus(StrEnum):
+    FRESH = "fresh"
+    REFRESHED = "refreshed"
+    STALE = "stale"
+
+
+class CurrentSamplingQuality(StrEnum):
+    EXACT_GRID_CELL = "exact_grid_cell"
+    NEAREST_GRID_CELL = "nearest_grid_cell"
+    NEAREST_VALID_WATER_CELL = "nearest_valid_water_cell"
+
+
+class CurrentEvidenceQuality(StrEnum):
+    NORMAL = "normal"
+    DEGRADED = "degraded"
+
+
+class CurrentTimeClassification(StrEnum):
+    ANALYSIS = "analysis"
+    FORECAST = "forecast"
+    UNKNOWN = "unknown"
+
+
+class CurrentSourceClassification(BaseModel):
+    category: Literal["numerical_ocean_model"] = "numerical_ocean_model"
+    temporal_mode: Literal["analysis_or_forecast"] = "analysis_or_forecast"
+    quantity: Literal["total_surface_current"] = "total_surface_current"
+    observation: Literal[False] = False
+
+
+class CurrentVector(BaseModel):
+    eastward_mps: float | None
+    northward_mps: float | None
+
+
+class CurrentTotalVector(CurrentVector):
+    eastward_mps: float
+    northward_mps: float
+    speed_mps: float = Field(ge=0)
+    direction_toward_deg: float | None = Field(default=None, ge=0, lt=360)
+    direction_toward_compass: Literal[
+        "N", "NE", "E", "SE", "S", "SW", "W", "NW", "CALM"
+    ]
+
+
+class CurrentComponents(BaseModel):
+    general_circulation: CurrentVector
+    tide: CurrentVector
+    stokes_drift: CurrentVector
+
+
+class CurrentResidual(BaseModel):
+    eastward: float | None
+    northward: float | None
+
+
+class CurrentResponse(BaseModel):
+    provider: Literal["Copernicus Marine Service"] = "Copernicus Marine Service"
+    product_id: Literal["GLOBAL_ANALYSISFORECAST_PHY_001_024"] = (
+        "GLOBAL_ANALYSISFORECAST_PHY_001_024"
+    )
+    dataset_id: str = Field(min_length=1)
+    dataset_version: str = Field(min_length=1)
+    source_classification: CurrentSourceClassification = Field(
+        default_factory=CurrentSourceClassification
+    )
+    requested_location: SSTLocation
+    sampled_location: SSTLocation
+    distance_km: float = Field(ge=0)
+    sampled_depth_m: float = Field(gt=0)
+    depth_selection: Literal["fixed_surface_level"] = "fixed_surface_level"
+    total_current: CurrentTotalVector
+    components: CurrentComponents
+    decomposition_complete: bool
+    component_residual_mps: CurrentResidual
+    time_classification: CurrentTimeClassification
+    valid_time: datetime
+    forecast_reference_time: datetime | None = None
+    forecast_lead_hours: float | None = Field(default=None, ge=0)
+    analysis_or_retrieval_time: datetime
+    sampling_quality: CurrentSamplingQuality
+    evidence_quality: CurrentEvidenceQuality
+    cache_status: CurrentCacheStatus
+    warnings: list[str] = Field(default_factory=list)
+    attribution: Literal["Copernicus Marine Service"] = "Copernicus Marine Service"
+    notice: Literal[
+        "Numerical model estimate for decision support; not certified navigation instructions."
+    ] = "Numerical model estimate for decision support; not certified navigation instructions."
+
+    @model_validator(mode="after")
+    def current_response_is_consistent(self) -> "CurrentResponse":
+        timestamps = [self.valid_time, self.analysis_or_retrieval_time]
+        if self.forecast_reference_time is not None:
+            timestamps.append(self.forecast_reference_time)
+        if any(value.tzinfo is None or value.utcoffset() is None for value in timestamps):
+            raise ValueError("current timestamps must be timezone-aware")
+        if self.time_classification == CurrentTimeClassification.UNKNOWN and (
+            self.forecast_reference_time is not None
+            or self.forecast_lead_hours is not None
+        ):
+            raise ValueError("unknown current classification cannot include forecast metadata")
+        return self
+
+
 class WaveCacheStatus(StrEnum):
     FRESH = "fresh"
     REFRESHED = "refreshed"

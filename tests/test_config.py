@@ -54,6 +54,12 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.chlorophyll_max_radius_km == 10
     assert settings.chlorophyll_freshness_hours == 72
     assert settings.chlorophyll_high_uncertainty_percent == 50
+    assert settings.copernicus_currents_enabled is False
+    assert settings.copernicus_currents_dataset_id == "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i"
+    assert settings.copernicus_currents_dataset_version == "202211"
+    assert settings.copernicus_currents_max_radius_km == 15
+    assert settings.copernicus_currents_calm_threshold_mps == 0.001
+    assert settings.copernicus_currents_component_tolerance_mps == 0.002
     assert settings.ecmwf_wind_enabled is False
     assert settings.ecmwf_wind_model == "ifs"
     assert settings.ecmwf_wind_resolution == "0p25"
@@ -199,6 +205,22 @@ def test_chlorophyll_uncertainty_threshold_is_bounded(threshold: float) -> None:
             _env_file=None,
             chlorophyll_high_uncertainty_percent=threshold,
         )
+
+
+def test_current_cache_ttls_must_be_ordered() -> None:
+    with pytest.raises(ValidationError, match="COPERNICUS_CURRENTS_STALE_TTL_SECONDS"):
+        Settings(_env_file=None, copernicus_currents_cache_ttl_seconds=60, copernicus_currents_stale_ttl_seconds=30)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"copernicus_currents_max_radius_km": 0},
+    {"copernicus_currents_time_tolerance_hours": 0},
+    {"copernicus_currents_calm_threshold_mps": -0.1},
+    {"copernicus_currents_component_tolerance_mps": 0},
+])
+def test_current_configuration_bounds(overrides) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
 
 
 @pytest.mark.parametrize("source", ["invalid", "ECMWF-SIGNED-URL"])

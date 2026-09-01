@@ -25,7 +25,7 @@ ORCA is decision support, not certified navigation advice.
 ## Current implementation status
 
 - Checkpoints A, B, C, D0, D1, D2-0, D2-1, D3-0, D3-1, D3-2-0, D3-2-1,
-  D4-0, and D4-1 are complete with 378 offline tests passing.
+  D4-0, D4-1, D5-0, and D5-1 are complete with 422 offline tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -54,6 +54,9 @@ ORCA is decision support, not certified navigation advice.
   metadata, preserves uncertainty and per-cell provenance, bounds water-cell
   fallback to 10 km, and treats chlorophyll as supporting environmental
   evidence rather than proof of fish presence.
+- Checkpoints D5-0 and D5-1 qualify and integrate Copernicus Marine SMOC
+  hourly total surface currents, including static-mask water validation,
+  constituent evidence, and oceanographic direction toward.
 
 ## 3. Current repository baseline
 
@@ -402,6 +405,28 @@ Planned source categories:
 - Chlorophyll-a is an environmental indicator and does not independently
   confirm fish presence. No PFZ score or safety conclusion is derived in D4-1.
 
+### Implemented Copernicus Marine total surface-current source
+
+- Endpoint: `GET /v1/marine/currents` with decimal coordinates and an optional
+  timezone-aware `at`; no depth query is exposed.
+- Product `GLOBAL_ANALYSISFORECAST_PHY_001_024`; SMOC dataset
+  `cmems_mod_glo_phy_anfc_merged-uv_PT1H-i`, version `202211`.
+- The fixed surface level is approximately `0.494025 m`. Provider `utotal` and
+  `vtotal` remain authoritative; circulation, tide, and Stokes vectors are
+  nullable constituent evidence and are never fabricated.
+- Direction is oceanographic direction toward. The configurable `0.001 m/s`
+  calm threshold is an ORCA presentation policy.
+- Static dataset `cmems_mod_glo_phy_anfc_0.083deg_static`, version `202211`,
+  verifies sea/land. Nearest-valid-water fallback is bounded by a configurable
+  15-km ORCA policy.
+- Valid time is selected before point caching. A metadata-only resolver supplies
+  reference/lead/classification only when authoritative; otherwise all three
+  remain explicitly unknown/null with a warning.
+- SHA-256 cache identity includes exact selected valid time and every material
+  source, spatial, temporal, consistency, and schema configuration value.
+- Results are numerical-model estimates, not observations or certified
+  navigation instructions.
+
 Each adapter should return a normalized structure containing:
 
 - Source name and URL/product identifier.
@@ -574,6 +599,12 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
   uncertainty-aware evidence quality, deterministic bounded spatial/time
   selection, cache-aside/stale behavior, and combined partial failure are
   implemented. No fish-presence or safety conclusion is produced.
+- D5-0 complete: SMOC and depth-current candidates were qualified; SMOC was
+  selected for the first fixed-surface endpoint.
+- D5-1 complete: typed total-current retrieval, static-mask coastal selection,
+  deterministic direction-toward, constituent integrity evidence,
+  authoritative time metadata, exact-valid-time caching, and combined partial
+  failure are implemented.
 
 ### Checkpoint E — combined conditions and safety
 
@@ -601,5 +632,5 @@ The next milestone is complete when:
 - Provider failure returns stale data clearly when available, otherwise a typed error.
 - All normal tests pass without internet access.
 
-Checkpoint D4-1 completes the deterministic chlorophyll-a adapter. Further
-source or safety work requires a separately approved checkpoint.
+Checkpoint D5-1 completes the deterministic total surface-current adapter.
+Any next source or safety checkpoint requires separate approval.

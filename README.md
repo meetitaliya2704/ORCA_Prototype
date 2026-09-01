@@ -77,6 +77,7 @@ Current endpoints:
 - `GET /v1/marine/wind?latitude=18.025&longitude=70.525&at=2026-08-29T12:45:00Z`
 - `GET /v1/marine/wind/forecast?latitude=18.025&longitude=70.525&at=2026-08-31T00:00:00Z`
 - `GET /v1/marine/chlorophyll?latitude=18.025&longitude=70.525&at=2026-08-30T12:00:00Z`
+- `GET /v1/marine/currents?latitude=18.025&longitude=70.525&at=2026-08-31T22:00:00Z`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
 - `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
@@ -388,6 +389,37 @@ liability disclaimer and identify ORCA's modifications. No IMD warnings or
 safety classifications are implemented, and ORCA is not official navigation
 advice.
 
+## Copernicus Marine total surface currents
+
+`GET /v1/marine/currents` uses product
+`GLOBAL_ANALYSISFORECAST_PHY_001_024`, SMOC dataset
+`cmems_mod_glo_phy_anfc_merged-uv_PT1H-i` version `202211`. Enable it with
+`COPERNICUS_CURRENTS_ENABLED=true` after installing `.[copernicus]`. Disabled
+mode keeps the application dependency-free and supplies only clearly labelled
+demo current data to the combined development endpoint.
+
+SMOC is an hourly numerical-model surface product at the fixed shallowest
+level near `0.494025 m`. ORCA uses provider `utotal`/`vtotal` as the
+authoritative total surface current. The optional decomposition exposes
+general circulation (`uo`/`vo`), tides (`utide`/`vtide`), and Stokes drift
+(`vsdx`/`vsdy`). A missing constituent does not erase a finite provider total;
+it degrades evidence and produces a warning.
+
+Direction is oceanographic **toward** direction: 0 degrees points north and 90
+degrees east. Values at or below the configurable `0.001 m/s` calm threshold
+have null direction and `CALM` compass. A bounded 15-km ORCA policy uses the
+official static sea mask to reject land and select the nearest valid water cell.
+
+The ARCO service exposes valid time but not cycle/reference/lead coordinates.
+ORCA uses a metadata-only resolver; unresolved metadata returns
+`time_classification="unknown"` with null reference and lead rather than
+guessing. Cache identities contain the exact selected provider time, source,
+coordinates, mask and every material selection threshold. Matching stale data
+is eligible only after source unavailability.
+
+Responses carry Copernicus attribution and state that model currents are
+decision-support estimates, not certified navigation instructions.
+
 ## Setup
 
 Python 3.11 or newer is required.
@@ -400,7 +432,7 @@ Copy-Item .env.example .env
 ```
 
 The default install does not include Copernicus Marine. To enable real SST,
-waves, wind, or chlorophyll, install `.[copernicus]`, configure a local Copernicus Marine
+waves, wind, chlorophyll, or currents, install `.[copernicus]`, configure a local Copernicus Marine
 login, and use the safe settings documented in `.env.example`.
 
 The default install also excludes ECMWF Open Data support. Install `.[ecmwf]`
@@ -482,6 +514,10 @@ python -m app.jobs.ingest_pfz
   source was qualified and integrated with strict flag-metadata validation,
   uncertainty-aware evidence quality, bounded water-cell selection,
   configuration-isolated caching, and combined-source partial failure.
+- D5-0 and D5-1 complete: the hourly SMOC total surface-current source was
+  qualified and integrated with static-mask water validation, authoritative
+  provider totals, constituent evidence, oceanographic direction-toward,
+  cycle-safe time metadata, exact-valid-time caching, and coastal fallback.
 
 ### Checkpoint E — combined conditions and safety
 

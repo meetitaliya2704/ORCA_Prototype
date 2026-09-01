@@ -10,6 +10,13 @@ from app.clients.copernicus_chlorophyll import (
     ChlorophyllSourceUnavailableError,
     InvalidChlorophyllResponseError,
 )
+from app.clients.copernicus_currents import (
+    CurrentAuthenticationError,
+    CurrentDependencyMissingError,
+    CurrentSourceNotConfiguredError,
+    CurrentSourceUnavailableError,
+    InvalidCurrentResponseError,
+)
 from app.clients.copernicus_sst import (
     InvalidSSTResponseError,
     SSTAuthenticationError,
@@ -40,6 +47,7 @@ from app.clients.ecmwf_wind import (
 )
 from app.schemas.marine import (
     ChlorophyllResponse,
+    CurrentResponse,
     MarineConditionsResponse,
     ECMWFWindForecastResponse,
     SSTQueryTime,
@@ -51,6 +59,13 @@ from app.services.chlorophyll import (
     ChlorophyllDataUnavailableError,
     InvalidChlorophyllTimeError,
     NoValidChlorophyllCellError,
+)
+from app.services.currents import (
+    CurrentDataUnavailableError,
+    CurrentForecastOutOfHorizonError,
+    CurrentTimeUnavailableError,
+    InvalidCurrentTimeError,
+    NoValidCurrentCellError,
 )
 from app.services.sst import NoValidSSTError
 from app.services.waves import NoValidWaveDataError, NoWaveTimeAvailableError
@@ -250,6 +265,49 @@ async def get_chlorophyll(
                 "message": "Copernicus Marine chlorophyll source is unavailable",
             },
         ) from exc
+
+
+@router.get(
+    "/currents",
+    response_model=CurrentResponse,
+    responses={
+        404: {"description": "No valid current cell or provider time is available"},
+        422: {"description": "Coordinates or current time are invalid"},
+        502: {"description": "Copernicus returned invalid current data"},
+        503: {"description": "Copernicus current support is unavailable"},
+    },
+)
+async def get_currents(
+    request: Request,
+    latitude: LatitudeQuery,
+    longitude: LongitudeQuery,
+    at: Annotated[SSTQueryTime | None, Query()] = None,
+) -> CurrentResponse:
+    service = request.app.state.current_service
+    if service is None:
+        raise HTTPException(status_code=503, detail={"code":"CURRENT_SOURCE_NOT_CONFIGURED","message":"Copernicus currents are not enabled"})
+    try:
+        return await service.get_current(latitude=latitude,longitude=longitude,at=at)
+    except InvalidCurrentTimeError as exc:
+        raise HTTPException(status_code=422,detail={"code":"INVALID_CURRENT_TIME","message":"Current time must include a timezone offset"}) from exc
+    except NoValidCurrentCellError as exc:
+        raise HTTPException(status_code=404,detail={"code":"NO_VALID_CURRENT_CELL","message":"No valid current water cell exists within the configured radius"}) from exc
+    except CurrentTimeUnavailableError as exc:
+        raise HTTPException(status_code=404,detail={"code":"CURRENT_TIME_UNAVAILABLE","message":"No provider current timestamp satisfies the request"}) from exc
+    except CurrentForecastOutOfHorizonError as exc:
+        raise HTTPException(status_code=404,detail={"code":"CURRENT_FORECAST_OUT_OF_HORIZON","message":"Requested time exceeds the current forecast horizon"}) from exc
+    except CurrentDataUnavailableError as exc:
+        raise HTTPException(status_code=404,detail={"code":"CURRENT_DATA_UNAVAILABLE","message":"Current data is unavailable for the request"}) from exc
+    except InvalidCurrentResponseError as exc:
+        raise HTTPException(status_code=502,detail={"code":"INVALID_CURRENT_RESPONSE","message":"Copernicus returned an invalid current response"}) from exc
+    except CurrentDependencyMissingError as exc:
+        raise HTTPException(status_code=503,detail={"code":"CURRENT_DEPENDENCY_MISSING","message":"Optional Copernicus Marine packages are not installed"}) from exc
+    except CurrentAuthenticationError as exc:
+        raise HTTPException(status_code=503,detail={"code":"CURRENT_AUTHENTICATION_FAILED","message":"Copernicus Marine credentials are missing or invalid"}) from exc
+    except CurrentSourceNotConfiguredError as exc:
+        raise HTTPException(status_code=503,detail={"code":"CURRENT_SOURCE_NOT_CONFIGURED","message":"Copernicus current integration is not configured"}) from exc
+    except CurrentSourceUnavailableError as exc:
+        raise HTTPException(status_code=503,detail={"code":"CURRENT_SOURCE_UNAVAILABLE","message":"Copernicus Marine current source is unavailable"}) from exc
 
 
 @router.get(
