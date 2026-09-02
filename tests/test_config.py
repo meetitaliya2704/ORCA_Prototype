@@ -60,6 +60,14 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.copernicus_currents_max_radius_km == 15
     assert settings.copernicus_currents_calm_threshold_mps == 0.001
     assert settings.copernicus_currents_component_tolerance_mps == 0.002
+    assert settings.copernicus_tides_enabled is False
+    assert settings.copernicus_tides_dataset_id == "cmems_mod_glo_phy_anfc_merged-sl_PT1H-i"
+    assert settings.copernicus_tides_dataset_version == "202411"
+    assert settings.copernicus_tides_max_radius_km == 10
+    assert settings.copernicus_tides_static_alignment_tolerance_km == 1
+    assert settings.copernicus_tides_decomposition_tolerance_m == .005
+    assert settings.copernicus_tides_static_cache_ttl_seconds == 604800
+    assert settings.copernicus_tides_availability_ttl_seconds == 600
     assert settings.ecmwf_wind_enabled is False
     assert settings.ecmwf_wind_model == "ifs"
     assert settings.ecmwf_wind_resolution == "0p25"
@@ -80,6 +88,23 @@ def test_enabled_redis_requires_a_url() -> None:
             redis_enabled=True,
             redis_url="",
         )
+
+
+def test_tide_cache_ttls_must_be_ordered() -> None:
+    with pytest.raises(ValidationError, match="COPERNICUS_TIDES_STALE_TTL_SECONDS"):
+        Settings(_env_file=None,copernicus_tides_cache_ttl_seconds=60,copernicus_tides_stale_ttl_seconds=30)
+
+
+@pytest.mark.parametrize("overrides",[
+    {"copernicus_tides_max_radius_km":0},
+    {"copernicus_tides_static_alignment_tolerance_km":0},
+    {"copernicus_tides_time_tolerance_hours":0},
+    {"copernicus_tides_decomposition_tolerance_m":0},
+    {"copernicus_tides_minimum_consecutive_samples":2},
+    {"copernicus_tides_availability_ttl_seconds":0},
+])
+def test_tide_configuration_is_bounded(overrides) -> None:
+    with pytest.raises(ValidationError): Settings(_env_file=None,**overrides)
 
 
 def test_enabled_redis_requires_the_optional_package(monkeypatch) -> None:

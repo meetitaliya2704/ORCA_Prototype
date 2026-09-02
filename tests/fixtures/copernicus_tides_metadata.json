@@ -1,0 +1,20 @@
+{
+  "dataset_id": "cmems_mod_glo_phy_anfc_merged-sl_PT1H-i",
+  "dataset_version": "202411",
+  "variables": {
+    "total_sea_level": {"units": "m", "standard_name": "sea_surface_height_above_geoid"},
+    "ocean_tide": {"units": "m", "standard_name": "sea_surface_height_due_to_tide"},
+    "tide_loading": {"units": "m", "standard_name": "sea_surface_height_due_to_tide_loading"},
+    "invert_barometer": {"units": "m", "standard_name": "sea_surface_height_due_to_air_pressure"},
+    "sea_surface_height": {"units": "m", "standard_name": "sea_surface_height_above_geoid"},
+    "global_mean_steric_variation": {"units": "m", "standard_name": "global_average_steric_sea_level_change"},
+    "global_mean_mass_volume_variation": {"units": "m", "standard_name": "global_average_sea_level_change"}
+  },
+  "static": {
+    "dataset_id": "cmems_mod_glo_phy_anfc_0.083deg_static",
+    "version": "202211",
+    "part": "bathy",
+    "variables": ["mask", "deptho"],
+    "mask_meaning": {"0": "land", "1": "sea"}
+  }
+}

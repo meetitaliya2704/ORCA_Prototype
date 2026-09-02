@@ -225,6 +225,7 @@ async def test_matching_stale_only_for_source_unavailability():
 
 def test_endpoint_schema_and_disabled_error():
     with TestClient(app) as client:
+        app.state.current_service = None
         schema=client.get("/openapi.json").json();params=schema["paths"]["/v1/marine/currents"]["get"]["parameters"]
         assert {p["schema"]["type"] for p in params if p["name"] in {"latitude","longitude"}}=={"number"}
         response=client.get("/v1/marine/currents",params={"latitude":18.025,"longitude":70.525})

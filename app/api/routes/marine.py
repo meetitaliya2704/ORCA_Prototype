@@ -17,6 +17,15 @@ from app.clients.copernicus_currents import (
     CurrentSourceUnavailableError,
     InvalidCurrentResponseError,
 )
+from app.clients.copernicus_tides import (
+    InvalidTideResponseError,
+    StaticGridAlignmentError,
+    StaticMaskUnavailableError,
+    TideAuthenticationError,
+    TideDependencyMissingError,
+    TideSourceNotConfiguredError,
+    TideSourceUnavailableError,
+)
 from app.clients.copernicus_sst import (
     InvalidSSTResponseError,
     SSTAuthenticationError,
@@ -48,6 +57,8 @@ from app.clients.ecmwf_wind import (
 from app.schemas.marine import (
     ChlorophyllResponse,
     CurrentResponse,
+    SeaLevelEventsResponse,
+    SeaLevelResponse,
     MarineConditionsResponse,
     ECMWFWindForecastResponse,
     SSTQueryTime,
@@ -66,6 +77,14 @@ from app.services.currents import (
     CurrentTimeUnavailableError,
     InvalidCurrentTimeError,
     NoValidCurrentCellError,
+)
+from app.services.tides import (
+    InsufficientTideSeriesError,
+    InvalidTideTimeError,
+    NoValidTideCellError,
+    TideDataUnavailableError,
+    TideForecastOutOfHorizonError,
+    TideTimeUnavailableError,
 )
 from app.services.sst import NoValidSSTError
 from app.services.waves import NoValidWaveDataError, NoWaveTimeAvailableError
@@ -308,6 +327,72 @@ async def get_currents(
         raise HTTPException(status_code=503,detail={"code":"CURRENT_SOURCE_NOT_CONFIGURED","message":"Copernicus current integration is not configured"}) from exc
     except CurrentSourceUnavailableError as exc:
         raise HTTPException(status_code=503,detail={"code":"CURRENT_SOURCE_UNAVAILABLE","message":"Copernicus Marine current source is unavailable"}) from exc
+
+
+def _raise_tide_error(exc: Exception) -> None:
+    if isinstance(exc, InvalidTideTimeError):
+        raise HTTPException(status_code=422, detail={"code":"INVALID_TIDE_TIME","message":"Sea-level times must include a timezone offset"}) from exc
+    if isinstance(exc, TideForecastOutOfHorizonError):
+        raise HTTPException(status_code=404, detail={"code":"TIDE_FORECAST_OUT_OF_HORIZON","message":"Requested time exceeds the sea-level forecast horizon"}) from exc
+    if isinstance(exc, TideTimeUnavailableError):
+        raise HTTPException(status_code=404, detail={"code":"TIDE_TIME_UNAVAILABLE","message":"No provider sea-level timestamp satisfies the request"}) from exc
+    if isinstance(exc, TideDataUnavailableError):
+        raise HTTPException(status_code=404, detail={"code":"TIDE_DATA_UNAVAILABLE","message":"Sea-level data is unavailable for the request"}) from exc
+    if isinstance(exc, NoValidTideCellError):
+        raise HTTPException(status_code=404, detail={"code":"NO_VALID_TIDE_CELL","message":"No valid sea-level water cell exists within the configured radius"}) from exc
+    if isinstance(exc, InsufficientTideSeriesError):
+        raise HTTPException(status_code=404, detail={"code":"INSUFFICIENT_TIDE_SERIES","message":"Insufficient consecutive samples exist for reliable extrema extraction"}) from exc
+    if isinstance(exc, StaticGridAlignmentError):
+        raise HTTPException(status_code=502, detail={"code":"STATIC_GRID_ALIGNMENT_FAILED","message":"The provider dynamic and static grids could not be aligned safely"}) from exc
+    if isinstance(exc, InvalidTideResponseError):
+        raise HTTPException(status_code=502, detail={"code":"INVALID_TIDE_RESPONSE","message":"Copernicus returned an invalid sea-level response"}) from exc
+    if isinstance(exc, TideDependencyMissingError):
+        raise HTTPException(status_code=503, detail={"code":"TIDE_DEPENDENCY_MISSING","message":"Optional Copernicus Marine packages are not installed"}) from exc
+    if isinstance(exc, TideAuthenticationError):
+        raise HTTPException(status_code=503, detail={"code":"TIDE_AUTHENTICATION_FAILED","message":"Copernicus Marine credentials are missing or invalid"}) from exc
+    if isinstance(exc, TideSourceNotConfiguredError):
+        raise HTTPException(status_code=503, detail={"code":"TIDE_SOURCE_NOT_CONFIGURED","message":"Copernicus sea-level integration is not configured"}) from exc
+    if isinstance(exc, StaticMaskUnavailableError):
+        raise HTTPException(status_code=503, detail={"code":"STATIC_MASK_UNAVAILABLE","message":"Copernicus static water mask is unavailable"}) from exc
+    if isinstance(exc, TideSourceUnavailableError):
+        raise HTTPException(status_code=503, detail={"code":"TIDE_SOURCE_UNAVAILABLE","message":"Copernicus Marine sea-level source is unavailable"}) from exc
+    raise exc
+
+
+@router.get(
+    "/sea-level", response_model=SeaLevelResponse,
+    responses={404:{"description":"No valid sea-level cell or time is available"},422:{"description":"Coordinates or time are invalid"},502:{"description":"Copernicus returned invalid sea-level data"},503:{"description":"Copernicus sea-level support is unavailable"}},
+)
+async def get_sea_level(
+    request: Request, latitude: LatitudeQuery, longitude: LongitudeQuery,
+    at: Annotated[SSTQueryTime | None, Query()] = None,
+) -> SeaLevelResponse:
+    service=request.app.state.tide_service
+    if service is None:
+        raise HTTPException(status_code=503,detail={"code":"TIDE_SOURCE_NOT_CONFIGURED","message":"Copernicus sea-level integration is not enabled"})
+    try:
+        return await service.get_sea_level(latitude=latitude,longitude=longitude,at=at)
+    except Exception as exc:
+        _raise_tide_error(exc)
+
+
+@router.get(
+    "/sea-level/events", response_model=SeaLevelEventsResponse,
+    responses={404:{"description":"No valid sea-level series is available"},422:{"description":"Coordinates, start, or duration are invalid"},502:{"description":"Copernicus returned invalid sea-level data"},503:{"description":"Copernicus sea-level support is unavailable"}},
+)
+async def get_sea_level_events(
+    request: Request, latitude: LatitudeQuery, longitude: LongitudeQuery,
+    start: Annotated[SSTQueryTime | None, Query()] = None,
+    hours: Annotated[int, Query(ge=24,le=72)] = 48,
+    interpolate: bool = True,
+) -> SeaLevelEventsResponse:
+    service=request.app.state.tide_service
+    if service is None:
+        raise HTTPException(status_code=503,detail={"code":"TIDE_SOURCE_NOT_CONFIGURED","message":"Copernicus sea-level integration is not enabled"})
+    try:
+        return await service.get_events(latitude=latitude,longitude=longitude,start=start,hours=hours,interpolate=interpolate)
+    except Exception as exc:
+        _raise_tide_error(exc)
 
 
 @router.get(

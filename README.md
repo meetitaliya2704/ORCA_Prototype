@@ -78,6 +78,8 @@ Current endpoints:
 - `GET /v1/marine/wind/forecast?latitude=18.025&longitude=70.525&at=2026-08-31T00:00:00Z`
 - `GET /v1/marine/chlorophyll?latitude=18.025&longitude=70.525&at=2026-08-30T12:00:00Z`
 - `GET /v1/marine/currents?latitude=18.025&longitude=70.525&at=2026-08-31T22:00:00Z`
+- `GET /v1/marine/sea-level?latitude=18.025&longitude=70.525&at=2026-09-01T12:00:00Z`
+- `GET /v1/marine/sea-level/events?latitude=18.025&longitude=70.525&hours=48&interpolate=true`
 - `GET /v1/pfz/preview?sector_code=SEC001`
 - `GET /v1/pfz/snapshot`
 - `GET /v1/pfz/nearest?latitude=21.6417&longitude=69.6293&at=2026-08-27T12:00:00Z`
@@ -420,6 +422,82 @@ is eligible only after source unavailability.
 Responses carry Copernicus attribution and state that model currents are
 decision-support estimates, not certified navigation instructions.
 
+## Copernicus Marine sea level and estimated extrema
+
+`GET /v1/marine/sea-level` and `GET /v1/marine/sea-level/events` use product
+`GLOBAL_ANALYSISFORECAST_PHY_001_024`, dataset
+`cmems_mod_glo_phy_anfc_merged-sl_PT1H-i` version `202411`. Enable them with
+`COPERNICUS_TIDES_ENABLED=true` after installing `.[copernicus]`. The default
+application remains dependency-free and the combined development endpoint uses
+a clearly labelled demo value while the feature is disabled.
+
+The point endpoint distinguishes numerical astronomical tide (`ocean_tide`)
+from provider-produced total modelled sea level (`total_sea_level`). It exposes
+the non-tidal dynamic, inverse-barometer, global-mean steric, global-mean mass,
+and separate `tide_loading` components. ORCA checks the documented equation:
+
+```text
+total ≈ ocean_tide + invert_barometer + sea_surface_height
+        + global_mean_steric_variation
+        + global_mean_mass_volume_variation
+```
+
+`tide_loading` is intentionally excluded. A residual above the configurable
+0.005-m ORCA tolerance degrades decomposition evidence without replacing the
+authoritative provider total.
+
+The events endpoint independently returns `astronomical_tide_events` and
+`total_sea_level_extrema`; total extrema are not labelled tide events. It uses
+padded hourly series, deterministic local extrema, and optional guarded
+three-point quadratic interpolation. Even interpolated times retain an
+uncertainty of at least 60 minutes.
+
+Both endpoints use a bounded 10-km water-cell policy and align the dynamic grid
+to the official static mask within 1 km. Static, dynamic field, normalized
+point, metadata, stale, and event caches have separate identities. ARCO valid
+time is never classified as analysis or forecast without authoritative
+metadata; unresolved reference and lead remain null.
+
+`provider_surface_level_coordinate_m` is the provider's fixed vertical grid
+coordinate (approximately 0.494 m), not local water depth. `bathymetry_m`
+remains the separate model sea-floor depth. Dynamic requests select the exact
+intended surface coordinate, while static-mask requests independently select
+their shallowest published level.
+
+Event `hours` is an exact duration and the requested interval is inclusive:
+`[start, start + hours]`. ORCA requires the nearest provider timestamp strictly
+before the start and strictly after the end. Those padding samples support
+boundary-extrema confirmation and interpolation but cannot themselves produce
+an event outside the requested interval. The response exposes typed
+`requested_window` and `provider_window` metadata, including exact timestamps,
+cadence, sample count, and padding confirmation.
+
+A separate `tides:availability:` snapshot cache (600-second default) stores
+only provider timestamp metadata. It allows omitted-`at` and covered explicit
+requests to resolve the exact field before the point-cache lookup without a
+second network inventory call. Availability, static, field, point, stale,
+cycle, and event values use separate namespaces and process-local single-flight
+locks. `/v1/marine/conditions` registers only the point source; it never runs
+event extraction.
+
+Live D6-1A verification reduced the repeated omitted-`at` point request from
+7.978 seconds before hardening to 0.005 seconds, with no availability refresh
+or dynamic field reload. An identical explicit-time request returned fresh in
+0.001 seconds. A verified exact 48-hour event window exposed 49 inclusive
+interior timestamps plus one strict neighbour on each side (51 total).
+
+These values are numerical model elevations relative to the model/geoid reference,
+not chart-datum heights, tide-gauge observations, harbour tide tables, or
+certified navigation information. Attribution: E.U. Copernicus Marine Service
+Information.
+
+Stable public errors include `INVALID_TIDE_TIME`, `TIDE_DATA_UNAVAILABLE`,
+`TIDE_FORECAST_OUT_OF_HORIZON`, `TIDE_TIME_UNAVAILABLE`,
+`TIDE_SOURCE_UNAVAILABLE`, `INVALID_TIDE_RESPONSE`, `NO_VALID_TIDE_CELL`,
+`INSUFFICIENT_TIDE_SERIES`, `TIDE_SOURCE_NOT_CONFIGURED`,
+`TIDE_DEPENDENCY_MISSING`, `TIDE_AUTHENTICATION_FAILED`,
+`STATIC_MASK_UNAVAILABLE`, and `STATIC_GRID_ALIGNMENT_FAILED`.
+
 ## Setup
 
 Python 3.11 or newer is required.
@@ -432,7 +510,7 @@ Copy-Item .env.example .env
 ```
 
 The default install does not include Copernicus Marine. To enable real SST,
-waves, wind, chlorophyll, or currents, install `.[copernicus]`, configure a local Copernicus Marine
+waves, wind, chlorophyll, currents, or sea level, install `.[copernicus]`, configure a local Copernicus Marine
 login, and use the safe settings documented in `.env.example`.
 
 The default install also excludes ECMWF Open Data support. Install `.[ecmwf]`
@@ -518,6 +596,13 @@ python -m app.jobs.ingest_pfz
   qualified and integrated with static-mask water validation, authoritative
   provider totals, constituent evidence, oceanographic direction-toward,
   cycle-safe time metadata, exact-valid-time caching, and coastal fallback.
+- D6-0 and D6-1 complete: the decomposed hourly model sea-level source was
+  qualified and integrated with distinct point and estimated-extrema endpoints,
+  static-grid water validation, guarded interpolation, and isolated caches.
+- D6-1A complete: inclusive event windows now require timestamp-proven padding,
+  omitted-time point requests use short-lived availability metadata, provider
+  surface-coordinate terminology is explicit, and static depth requests no
+  longer start below the provider range.
 
 ### Checkpoint E — combined conditions and safety
 

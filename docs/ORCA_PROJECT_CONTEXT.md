@@ -24,8 +24,8 @@ ORCA is decision support, not certified navigation advice.
 
 ## Current implementation status
 
-- Checkpoints A, B, C, D0, D1, D2-0, D2-1, D3-0, D3-1, D3-2-0, D3-2-1,
-  D4-0, D4-1, D5-0, and D5-1 are complete with 422 offline tests passing.
+- Checkpoints A through D6-1A described in this document are complete, with
+  472 offline tests passing.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -427,6 +427,59 @@ Planned source categories:
 - Results are numerical-model estimates, not observations or certified
   navigation instructions.
 
+### Implemented Copernicus Marine sea-level and tide-elevation source
+
+- Point endpoint: `GET /v1/marine/sea-level`; estimated-extrema endpoint:
+  `GET /v1/marine/sea-level/events`.
+- Product `GLOBAL_ANALYSISFORECAST_PHY_001_024`, dataset
+  `cmems_mod_glo_phy_anfc_merged-sl_PT1H-i`, version `202411`; live variables
+  are `total_sea_level`, `ocean_tide`, `tide_loading`, `invert_barometer`,
+  `sea_surface_height`, `global_mean_steric_variation`, and
+  `global_mean_mass_volume_variation`.
+- `ocean_tide` is numerical astronomical tide elevation. The provider's
+  `total_sea_level` is authoritative total modelled elevation. It is not an
+  observed, harbour-specific, chart-datum, or certified navigation height;
+  model/geoid-reference values are not converted to a local chart datum.
+- The documented reconstruction excludes `tide_loading`; the separate loading
+  displacement is still returned. Residual evidence degrades only beyond the
+  configurable 0.005-m ORCA tolerance.
+- Dynamic cells are aligned deterministically with the shallowest official
+  static mask from `cmems_mod_glo_phy_anfc_0.083deg_static` version `202211`.
+  Alignment is limited to 1 km and nearest-valid-water fallback to 10 km.
+- Point selection resolves exact provider valid time before normalized caching.
+  Reference, lead, and analysis/forecast labels are returned only when a
+  metadata-only inventory resolver establishes them authoritatively.
+- The events endpoint retrieves padded 24-72-hour series and keeps
+  `astronomical_tide_events` distinct from `total_sea_level_extrema`.
+  Three-point quadratic interpolation is optional and guarded; reported timing
+  uncertainty is never less than the hourly provider cadence.
+- Static, dynamic field, point, metadata, stale, and event caches have distinct
+  canonical identities and process-local single-flight protection. The
+  combined conditions endpoint runs only the point request.
+- Attribution: `E.U. Copernicus Marine Service Information`. Output remains a
+  numerical-model decision-support estimate, not a harbour tide table or
+  navigation instruction.
+- D6-1A defines the event interval as inclusive `[start, start + hours]` and
+  requires the nearest provider timestamp strictly outside each boundary.
+  Typed requested/provider window metadata records exact bounds, hourly
+  cadence, sample count, and both padding confirmations; missing padding yields
+  `INSUFFICIENT_TIDE_SERIES` rather than an inferred boundary event.
+- `provider_surface_level_coordinate_m` names the fixed model vertical
+  coordinate. It is distinct from `bathymetry_m`, and dynamic/static surface
+  levels are selected independently rather than assumed bit-identical.
+- A 600-second `tides:availability:` metadata cache resolves omitted and
+  covered explicit request times before normalized point lookup. Availability,
+  static, dynamic field, point, stale, cycle, and event cache namespaces remain
+  disjoint and single-flight protected.
+- D6-1A live verification measured a repeated omitted-time point hit at 0.005
+  seconds (previously 7.978 seconds), with unchanged availability/dynamic call
+  counters; an explicit-time repeat took 0.001 seconds. The exact 48-hour
+  window returned 51 provider timestamps: 49 inclusive timestamps and two
+  strict padding neighbours.
+- Combined conditions use generic source registration in `main.py`; exactly
+  one point sea-level request runs concurrently and event extraction is never
+  part of the combined request.
+
 Each adapter should return a normalized structure containing:
 
 - Source name and URL/product identifier.
@@ -605,6 +658,15 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
   deterministic direction-toward, constituent integrity evidence,
   authoritative time metadata, exact-valid-time caching, and combined partial
   failure are implemented.
+- D6-0 complete: the decomposed merged sea-level dataset, live `tide_loading`
+  name, static grid, coastal behavior, and extrema feasibility were qualified.
+- D6-1 complete: typed point and estimated-extrema endpoints, authoritative
+  component reconstruction, static-grid alignment, guarded interpolation,
+  cache separation, and combined point-source integration are implemented.
+  The complete offline suite passes with 472 tests.
+- D6-1A complete: event padding/off-by-one behavior, omitted-time availability
+  caching, surface-coordinate terminology, static-depth request bounds, and
+  combined endpoint guarantees are hardened and regression tested.
 
 ### Checkpoint E — combined conditions and safety
 

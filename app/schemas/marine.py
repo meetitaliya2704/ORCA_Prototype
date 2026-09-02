@@ -276,6 +276,155 @@ class CurrentResponse(BaseModel):
         return self
 
 
+class TideCacheStatus(StrEnum):
+    FRESH = "fresh"
+    REFRESHED = "refreshed"
+    STALE = "stale"
+
+
+class TideSamplingQuality(StrEnum):
+    EXACT_GRID_CELL = "exact_grid_cell"
+    NEAREST_GRID_CELL = "nearest_grid_cell"
+    NEAREST_VALID_WATER_CELL = "nearest_valid_water_cell"
+
+
+class TideEvidenceQuality(StrEnum):
+    NORMAL = "normal"
+    DEGRADED = "degraded"
+
+
+class TideTimeClassification(StrEnum):
+    ANALYSIS = "analysis"
+    FORECAST = "forecast"
+    UNKNOWN = "unknown"
+
+
+class SeaLevelSourceClassification(BaseModel):
+    category: Literal["numerical_ocean_model"] = "numerical_ocean_model"
+    quantity: Literal["sea_level_and_astronomical_tide"] = (
+        "sea_level_and_astronomical_tide"
+    )
+    observation: Literal[False] = False
+    harbour_specific: Literal[False] = False
+    chart_datum: Literal[False] = False
+
+
+class SeaLevelComponents(BaseModel):
+    non_tidal_dynamic_sea_level_m: float
+    inverse_barometer_m: float
+    global_mean_steric_variation_m: float
+    global_mean_mass_variation_m: float
+    tide_loading_m: float
+
+
+class SeaLevelResponse(BaseModel):
+    provider: Literal["Copernicus Marine Service"] = "Copernicus Marine Service"
+    product_id: Literal["GLOBAL_ANALYSISFORECAST_PHY_001_024"] = (
+        "GLOBAL_ANALYSISFORECAST_PHY_001_024"
+    )
+    dataset_id: str = Field(min_length=1)
+    dataset_version: str = Field(min_length=1)
+    source_classification: SeaLevelSourceClassification = Field(
+        default_factory=SeaLevelSourceClassification
+    )
+    requested_location: SSTLocation
+    sampled_location: SSTLocation
+    distance_km: float = Field(ge=0)
+    bathymetry_m: float | None = Field(default=None, ge=0)
+    provider_surface_level_coordinate_m: float = Field(ge=0)
+    depth_selection: Literal["fixed_surface_level"] = "fixed_surface_level"
+    valid_time: datetime
+    time_classification: TideTimeClassification
+    forecast_reference_time: datetime | None = None
+    forecast_lead_hours: float | None = Field(default=None, ge=0)
+    astronomical_tide_elevation_m: float
+    total_modelled_sea_level_m: float
+    components: SeaLevelComponents
+    reconstructed_total_sea_level_m: float
+    decomposition_residual_m: float
+    sampling_quality: TideSamplingQuality
+    model_evidence_quality: TideEvidenceQuality
+    spatial_representativeness: TideEvidenceQuality
+    decomposition_evidence_quality: TideEvidenceQuality
+    cache_status: TideCacheStatus
+    retrieved_at: datetime
+    warnings: list[str] = Field(default_factory=list)
+    attribution: Literal["E.U. Copernicus Marine Service Information"] = (
+        "E.U. Copernicus Marine Service Information"
+    )
+    notice: Literal[
+        "Numerical model estimate; not a harbour tide table, chart-datum height or certified navigation instruction."
+    ] = "Numerical model estimate; not a harbour tide table, chart-datum height or certified navigation instruction."
+
+    @model_validator(mode="after")
+    def sea_level_time_metadata_is_consistent(self) -> "SeaLevelResponse":
+        if self.valid_time.tzinfo is None or self.retrieved_at.tzinfo is None:
+            raise ValueError("sea-level timestamps must be timezone-aware")
+        if self.time_classification == TideTimeClassification.UNKNOWN:
+            if self.forecast_reference_time is not None or self.forecast_lead_hours is not None:
+                raise ValueError("unknown time classification cannot include forecast metadata")
+        return self
+
+
+class SeaLevelEvent(BaseModel):
+    event_type: Literal["high", "low"]
+    provider_sample_time: datetime
+    provider_sample_height_m: float
+    estimated_time: datetime | None = None
+    estimated_height_m: float | None = None
+    time_is_interpolated: bool
+    interpolation_method: Literal["three_point_quadratic"] | None = None
+    provider_cadence_minutes: Literal[60] = 60
+    timing_uncertainty_minutes_at_least: Literal[60] = 60
+
+
+class SeaLevelRequestedWindow(BaseModel):
+    start: datetime
+    end: datetime
+    duration_hours: int = Field(ge=24, le=72)
+
+
+class SeaLevelProviderWindow(BaseModel):
+    start: datetime
+    end: datetime
+    cadence_minutes: Literal[60] = 60
+    sample_count: int = Field(ge=3)
+    has_left_padding: Literal[True] = True
+    has_right_padding: Literal[True] = True
+
+
+class SeaLevelEventsResponse(BaseModel):
+    provider: Literal["Copernicus Marine Service"] = "Copernicus Marine Service"
+    product_id: Literal["GLOBAL_ANALYSISFORECAST_PHY_001_024"] = (
+        "GLOBAL_ANALYSISFORECAST_PHY_001_024"
+    )
+    dataset_id: str
+    dataset_version: str
+    source_classification: SeaLevelSourceClassification = Field(
+        default_factory=SeaLevelSourceClassification
+    )
+    requested_location: SSTLocation
+    sampled_location: SSTLocation
+    distance_km: float = Field(ge=0)
+    bathymetry_m: float | None = Field(default=None, ge=0)
+    provider_surface_level_coordinate_m: float = Field(ge=0)
+    requested_window: SeaLevelRequestedWindow
+    provider_window: SeaLevelProviderWindow
+    astronomical_tide_events: list[SeaLevelEvent]
+    total_sea_level_extrema: list[SeaLevelEvent]
+    sampling_quality: TideSamplingQuality
+    spatial_representativeness: TideEvidenceQuality
+    cache_status: TideCacheStatus
+    retrieved_at: datetime
+    warnings: list[str] = Field(default_factory=list)
+    attribution: Literal["E.U. Copernicus Marine Service Information"] = (
+        "E.U. Copernicus Marine Service Information"
+    )
+    notice: Literal[
+        "Estimated extrema from hourly numerical model values; not a harbour tide table, chart-datum height or certified navigation instruction."
+    ] = "Estimated extrema from hourly numerical model values; not a harbour tide table, chart-datum height or certified navigation instruction."
+
+
 class WaveCacheStatus(StrEnum):
     FRESH = "fresh"
     REFRESHED = "refreshed"

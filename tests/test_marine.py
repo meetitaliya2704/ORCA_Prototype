@@ -10,6 +10,7 @@ from app.clients.copernicus_sst import (
     SSTSourceUnavailableError,
 )
 from app.clients.copernicus_chlorophyll import ChlorophyllSourceUnavailableError
+from app.clients.copernicus_tides import TideSourceUnavailableError
 from app.clients.copernicus_waves import (
     InvalidWaveResponseError,
     WaveAuthenticationError,
@@ -36,11 +37,13 @@ from app.main import app
 from app.schemas.marine import (
     ChlorophyllResponse,
     ECMWFWindForecastResponse,
+    SeaLevelResponse,
     SSTResponse,
     WaveResponse,
     WindResponse,
 )
 from app.services.chlorophyll import CopernicusChlorophyllMarineSource
+from app.services.tides import CopernicusTideMarineSource
 from app.services.cache import MemoryJsonCache
 from app.services.marine import MarineConditionsService
 from app.services.sst import CopernicusSSTMarineSource, NoValidSSTError
@@ -980,3 +983,95 @@ async def test_combined_conditions_cache_isolates_same_day_forecast_times() -> N
     )
     assert first.generated_at != second.generated_at
     assert second.sources["wind"].cached is False
+
+
+@pytest.mark.asyncio
+async def test_combined_conditions_uses_only_point_sea_level_and_preserves_partial_results() -> None:
+    class PointOnlyTideService:
+        def __init__(self, error=None):
+            self.point_calls = 0
+            self.event_calls = 0
+            self.received = None
+            self.error = error
+
+        async def get_sea_level(self, **kwargs):
+            self.point_calls += 1
+            self.received = kwargs
+            if self.error is not None:
+                raise self.error
+            return SeaLevelResponse.model_validate({
+                "dataset_id":"cmems_mod_glo_phy_anfc_merged-sl_PT1H-i","dataset_version":"202411",
+                "requested_location":{"latitude":kwargs["latitude"],"longitude":kwargs["longitude"]},
+                "sampled_location":{"latitude":18.0,"longitude":70.5},"distance_km":3.836,
+                "bathymetry_m":1452.251,"provider_surface_level_coordinate_m":.494140625,"valid_time":"2026-09-01T12:00:00Z",
+                "time_classification":"unknown","astronomical_tide_elevation_m":.2,
+                "total_modelled_sea_level_m":.55,"components":{"non_tidal_dynamic_sea_level_m":.25,
+                "inverse_barometer_m":.05,"global_mean_steric_variation_m":.03,
+                "global_mean_mass_variation_m":.02,"tide_loading_m":.04},
+                "reconstructed_total_sea_level_m":.55,"decomposition_residual_m":0,
+                "sampling_quality":"nearest_grid_cell","model_evidence_quality":"normal",
+                "spatial_representativeness":"normal","decomposition_evidence_quality":"normal",
+                "cache_status":"refreshed","retrieved_at":"2026-09-01T12:01:00Z",
+            })
+
+        async def get_events(self, **kwargs):
+            self.event_calls += 1
+            raise AssertionError("combined conditions must not execute event extraction")
+
+    tide_service=PointOnlyTideService()
+    service=MarineConditionsService(client=None,cache=MemoryJsonCache(),sources=[
+        CopernicusTideMarineSource(tide_service),DemoMarineSource("sst","SST",29.4,"degC")
+    ],cache_ttl=300)
+    result=await service.get_conditions(18.025,70.525,datetime(2026,9,1,12,tzinfo=UTC))
+    assert result.sources["sea_level"].status=="fresh"
+    assert result.sources["sst"].status=="fresh"
+    assert tide_service.point_calls==1 and tide_service.event_calls==0
+    assert tide_service.received=={"latitude":18.025,"longitude":70.525,"at":datetime(2026,9,1,12,tzinfo=UTC)}
+    data=result.sources["sea_level"].data
+    assert data["source_classification"]["quantity"]=="sea_level_and_astronomical_tide"
+    assert "astronomical_tide_events" not in data
+    assert "total_sea_level_extrema" not in data
+
+
+@pytest.mark.asyncio
+async def test_combined_sea_level_failure_never_uses_demo_and_preserves_other_sources() -> None:
+    class FailingTideService:
+        async def get_sea_level(self, **kwargs):
+            raise TideSourceUnavailableError("private")
+    service=MarineConditionsService(client=None,cache=MemoryJsonCache(),sources=[
+        CopernicusTideMarineSource(FailingTideService()),
+        DemoMarineSource("sst","SST",29.4,"degC"),
+    ],cache_ttl=300)
+    result=await service.get_conditions(18.025,70.525,datetime(2026,9,1,12,tzinfo=UTC))
+    assert result.sources["sea_level"].status=="unavailable"
+    assert result.sources["sea_level"].data is None
+    assert result.sources["sst"].status=="fresh"
+
+
+@pytest.mark.asyncio
+async def test_combined_other_failure_preserves_sea_level() -> None:
+    class PointTideService:
+        async def get_sea_level(self, **kwargs):
+            return SeaLevelResponse.model_validate({
+                "dataset_id":"cmems_mod_glo_phy_anfc_merged-sl_PT1H-i","dataset_version":"202411",
+                "requested_location":{"latitude":kwargs["latitude"],"longitude":kwargs["longitude"]},
+                "sampled_location":{"latitude":18.0,"longitude":70.5},"distance_km":3.836,
+                "bathymetry_m":1452.251,"provider_surface_level_coordinate_m":.494140625,
+                "valid_time":"2026-09-01T12:00:00Z","time_classification":"unknown",
+                "astronomical_tide_elevation_m":.2,"total_modelled_sea_level_m":.55,
+                "components":{"non_tidal_dynamic_sea_level_m":.25,"inverse_barometer_m":.05,
+                "global_mean_steric_variation_m":.03,"global_mean_mass_variation_m":.02,"tide_loading_m":.04},
+                "reconstructed_total_sea_level_m":.55,"decomposition_residual_m":0,
+                "sampling_quality":"nearest_grid_cell","model_evidence_quality":"normal",
+                "spatial_representativeness":"normal","decomposition_evidence_quality":"normal",
+                "cache_status":"refreshed","retrieved_at":"2026-09-01T12:01:00Z",
+            })
+    class FailingSource:
+        name="waves"
+        async def fetch(self,*args,**kwargs): raise RuntimeError("private")
+    service=MarineConditionsService(client=None,cache=MemoryJsonCache(),sources=[
+        CopernicusTideMarineSource(PointTideService()),FailingSource(),
+    ],cache_ttl=300)
+    result=await service.get_conditions(18.025,70.525,datetime(2026,9,1,12,tzinfo=UTC))
+    assert result.sources["sea_level"].status=="fresh"
+    assert result.sources["waves"].status=="unavailable"

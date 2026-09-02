@@ -44,6 +44,14 @@ async def verify_startup():
         )
         assert type(chlorophyll).__name__ == "DemoMarineSource"
         assert chlorophyll.variable == "CHLOROPHYLL_A"
+        sea_level = next(
+            source
+            for source in app.state.marine_service.sources
+            if source.name == "sea_level"
+        )
+        assert type(sea_level).__name__ == "DemoMarineSource"
+        assert sea_level.variable == "TOTAL_MODELLED_SEA_LEVEL"
+        assert app.state.tide_service is None
 
 asyncio.run(verify_startup())
 """
@@ -52,6 +60,7 @@ asyncio.run(verify_startup())
     environment.pop("REDIS_URL", None)
     environment["REDIS_ENABLED"] = "false"
     environment["CHLOROPHYLL_ENABLED"] = "false"
+    environment["COPERNICUS_TIDES_ENABLED"] = "false"
 
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -343,7 +352,42 @@ with TestClient(app) as client:
         "COPERNICUS_SST_ENABLED":"false", "COPERNICUS_WAVES_ENABLED":"false",
         "COPERNICUS_WIND_ENABLED":"false", "ECMWF_WIND_ENABLED":"false",
         "CHLOROPHYLL_ENABLED":"false", "COPERNICUS_CURRENTS_ENABLED":"true",
+        "COPERNICUS_TIDES_ENABLED":"false",
         "REDIS_ENABLED":"false",
     })
     result = subprocess.run([sys.executable,"-c",script],cwd=tmp_path,env=environment,capture_output=True,text=True,check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_enabled_tides_missing_optional_package_is_controlled(tmp_path: Path) -> None:
+    script = r"""
+import importlib.abc
+import sys
+
+class BlockCopernicus(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "copernicusmarine" or fullname.startswith("copernicusmarine."):
+            raise ModuleNotFoundError("copernicusmarine intentionally unavailable")
+        return None
+
+sys.meta_path.insert(0, BlockCopernicus())
+from fastapi.testclient import TestClient
+from app.main import app
+with TestClient(app) as client:
+    assert "copernicusmarine" not in sys.modules
+    paths=client.get("/openapi.json").json()["paths"]
+    assert "/v1/marine/sea-level" in paths
+    assert "/v1/marine/sea-level/events" in paths
+    response=client.get("/v1/marine/sea-level",params={"latitude":18.025,"longitude":70.525,"at":"2026-09-01T12:00:00Z"})
+    assert response.status_code==503
+    assert response.json()["detail"]["code"]=="TIDE_DEPENDENCY_MISSING"
+"""
+    environment=os.environ.copy()
+    environment.update({
+        "COPERNICUS_SST_ENABLED":"false","COPERNICUS_WAVES_ENABLED":"false",
+        "COPERNICUS_WIND_ENABLED":"false","ECMWF_WIND_ENABLED":"false",
+        "CHLOROPHYLL_ENABLED":"false","COPERNICUS_CURRENTS_ENABLED":"false",
+        "COPERNICUS_TIDES_ENABLED":"true","REDIS_ENABLED":"false",
+    })
+    result=subprocess.run([sys.executable,"-c",script],cwd=tmp_path,env=environment,capture_output=True,text=True,check=False)
+    assert result.returncode==0,result.stderr

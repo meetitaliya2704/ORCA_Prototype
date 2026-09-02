@@ -11,6 +11,10 @@ from app.clients.copernicus_currents import (
     CopernicusCurrentMetadataResolver,
     CopernicusMarineCurrentProvider,
 )
+from app.clients.copernicus_tides import (
+    CopernicusMarineTideProvider,
+    CopernicusTideMetadataResolver,
+)
 from app.clients.copernicus_sst import CopernicusMarineSSTProvider
 from app.clients.copernicus_waves import (
     COPERNICUS_WAVE_DATASET_VERSION,
@@ -33,6 +37,7 @@ from app.services.currents import (
     CopernicusCurrentMarineSource,
     CopernicusCurrentService,
 )
+from app.services.tides import CopernicusTideMarineSource, CopernicusTideService
 from app.services.marine import MarineConditionsService
 from app.services.pfz import (
     PFZNearestService,
@@ -187,6 +192,38 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.current_service = None
 
+    if settings.copernicus_tides_enabled:
+        tide_service = CopernicusTideService(
+            provider=CopernicusMarineTideProvider(),
+            metadata_resolver=CopernicusTideMetadataResolver(),
+            cache=cache,
+            dataset_id=settings.copernicus_tides_dataset_id,
+            dataset_version=settings.copernicus_tides_dataset_version,
+            static_dataset_id=settings.copernicus_tides_static_dataset_id,
+            static_dataset_version=settings.copernicus_tides_static_dataset_version,
+            static_dataset_part=settings.copernicus_tides_static_dataset_part,
+            max_radius_km=settings.copernicus_tides_max_radius_km,
+            static_alignment_tolerance_km=settings.copernicus_tides_static_alignment_tolerance_km,
+            time_tolerance_hours=settings.copernicus_tides_time_tolerance_hours,
+            max_horizon_hours=settings.copernicus_tides_max_horizon_hours,
+            decomposition_tolerance_m=settings.copernicus_tides_decomposition_tolerance_m,
+            fresh_ttl_seconds=settings.copernicus_tides_cache_ttl_seconds,
+            stale_ttl_seconds=settings.copernicus_tides_stale_ttl_seconds,
+            static_ttl_seconds=settings.copernicus_tides_static_cache_ttl_seconds,
+            metadata_ttl_seconds=settings.copernicus_tides_metadata_cache_ttl_seconds,
+            metadata_unavailable_ttl_seconds=settings.copernicus_tides_metadata_unavailable_ttl_seconds,
+            availability_ttl_seconds=settings.copernicus_tides_availability_ttl_seconds,
+            event_ttl_seconds=settings.copernicus_tides_event_cache_ttl_seconds,
+            minimum_consecutive_samples=settings.copernicus_tides_minimum_consecutive_samples,
+        )
+        tide_source = CopernicusTideMarineSource(tide_service)
+        app.state.tide_service = tide_service
+    else:
+        tide_source = DemoMarineSource(
+            "sea_level", "TOTAL_MODELLED_SEA_LEVEL", 0.0, "m"
+        )
+        app.state.tide_service = None
+
     if settings.ecmwf_wind_enabled:
         ecmwf_provider = ECMWFOpenDataWindProvider(
             model=settings.ecmwf_wind_model,
@@ -238,6 +275,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         wind_source,
         chlorophyll_source,
         current_source,
+        tide_source,
     ]
 
     app.state.marine_service = MarineConditionsService(
