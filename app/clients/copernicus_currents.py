@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol
 
+from app.core.performance import performance_span, to_thread_timed
+
 
 COPERNICUS_CURRENT_PRODUCT_ID = "GLOBAL_ANALYSISFORECAST_PHY_001_024"
 CURRENT_VARIABLES = (
@@ -175,7 +177,8 @@ def load_current_times(**kwargs: Any) -> list[datetime]:
         module = import_module("copernicusmarine")
         pandas_module = import_module("pandas")
         dataset = None
-        dataset = module.open_dataset(
+        with performance_span("provider.open"):
+            dataset = module.open_dataset(
             dataset_id=kwargs["dataset_id"], dataset_version=kwargs["dataset_version"],
             variables=["utotal"], minimum_latitude=kwargs["minimum_latitude"],
             maximum_latitude=kwargs["maximum_latitude"], minimum_longitude=kwargs["minimum_longitude"],
@@ -183,7 +186,8 @@ def load_current_times(**kwargs: Any) -> list[datetime]:
             end_datetime=kwargs["end_datetime"], minimum_depth=kwargs["surface_depth_m"],
             maximum_depth=kwargs["surface_depth_m"], coordinates_selection_method="outside",
         )
-        dataset.coords["time"].load()
+        with performance_span("provider.remote_load"):
+            dataset.coords["time"].load()
         return sorted({_as_utc(value, pandas_module) for value in dataset.coords["time"].values})
     except CurrentProviderError:
         raise
@@ -204,18 +208,23 @@ def load_current_cells(**kwargs: Any) -> list[CurrentProviderCell]:
             minimum_longitude=kwargs["minimum_longitude"], maximum_longitude=kwargs["maximum_longitude"],
             coordinates_selection_method="outside",
         )
-        dynamic = module.open_dataset(
+        with performance_span("provider.open"):
+            dynamic = module.open_dataset(
             dataset_id=kwargs["dataset_id"], dataset_version=kwargs["dataset_version"],
             variables=list(CURRENT_VARIABLES), start_datetime=kwargs["selected_time"],
             end_datetime=kwargs["selected_time"], minimum_depth=kwargs["surface_depth_m"],
             maximum_depth=kwargs["surface_depth_m"], **bounds,
         )
-        static = module.open_dataset(
+        with performance_span("provider.open"):
+            static = module.open_dataset(
             dataset_id=kwargs["static_dataset_id"], dataset_version=kwargs["static_dataset_version"],
             dataset_part="bathy", variables=["mask", "deptho"],
             minimum_depth=kwargs["surface_depth_m"], maximum_depth=kwargs["surface_depth_m"], **bounds,
         )
-        dynamic.load(); static.load()
+        with performance_span("provider.remote_load"):
+            dynamic.load()
+        with performance_span("provider.static_mask"):
+            static.load()
         if any(name not in dynamic for name in CURRENT_VARIABLES) or any(name not in static for name in ("mask", "deptho")):
             raise InvalidCurrentResponseError("Copernicus current response has an invalid structure")
         for coordinate in ("time", "depth", "latitude", "longitude"):
@@ -267,13 +276,13 @@ class CopernicusMarineCurrentProvider:
     def __init__(self, time_loader: Callable[..., list[datetime]] = load_current_times, cell_loader: Callable[..., list[CurrentProviderCell]] = load_current_cells):
         self._time_loader=time_loader; self._cell_loader=cell_loader
     async def available_times(self, **kwargs: Any) -> list[datetime]:
-        return await asyncio.to_thread(self._time_loader, **kwargs)
+        return await to_thread_timed(self._time_loader, **kwargs)
     async def fetch_cells(self, **kwargs: Any) -> list[CurrentProviderCell]:
-        return await asyncio.to_thread(self._cell_loader, **kwargs)
+        return await to_thread_timed(self._cell_loader, **kwargs)
 
 
 class CopernicusCurrentMetadataResolver:
     def __init__(self, loader: Callable[..., CurrentCycleMetadata | None] = load_current_reference):
         self._loader=loader
     async def resolve(self, **kwargs: Any) -> CurrentCycleMetadata | None:
-        return await asyncio.to_thread(self._loader, **kwargs)
+        return await to_thread_timed(self._loader, **kwargs)

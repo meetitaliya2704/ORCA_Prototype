@@ -12,6 +12,8 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.core.performance import performance_span, to_thread_timed
+
 
 ECMWF_WIND_PROVIDER = "ECMWF"
 ECMWF_WIND_MODEL = "ifs"
@@ -453,8 +455,9 @@ class ECMWFOpenDataWindProvider:
                 "param": self.parameters,
             }
             try:
-                short = _as_utc_datetime(client.latest(step=0, **common))
-                long = _as_utc_datetime(client.latest(step=150, **common))
+                with performance_span("provider.latest_cycle"):
+                    short = _as_utc_datetime(client.latest(step=0, **common))
+                    long = _as_utc_datetime(client.latest(step=150, **common))
             except ECMWFWindError:
                 raise
             except Exception as exc:
@@ -471,7 +474,7 @@ class ECMWFOpenDataWindProvider:
     async def discover_cycles(self, source: str) -> ECMWFCycleAvailability:
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._discover_blocking, source),
+                to_thread_timed(self._discover_blocking, source),
                 timeout=self.total_timeout_seconds,
             )
         except TimeoutError as exc:
@@ -490,15 +493,16 @@ class ECMWFOpenDataWindProvider:
             with tempfile.TemporaryDirectory(prefix="orca-ecmwf-wind-") as directory:
                 target = Path(directory) / "wind.grib2"
                 try:
-                    client.retrieve(
-                        type=ECMWF_WIND_TYPE,
-                        stream=ECMWF_WIND_STREAM,
-                        param=self.parameters,
-                        step=forecast_step_hours,
-                        date=forecast_reference_time.strftime("%Y%m%d"),
-                        time=forecast_reference_time.hour,
-                        target=str(target),
-                    )
+                    with performance_span("provider.grib_download"):
+                        client.retrieve(
+                            type=ECMWF_WIND_TYPE,
+                            stream=ECMWF_WIND_STREAM,
+                            param=self.parameters,
+                            step=forecast_step_hours,
+                            date=forecast_reference_time.strftime("%Y%m%d"),
+                            time=forecast_reference_time.hour,
+                            target=str(target),
+                        )
                 except Exception as exc:
                     if _provider_status_code(exc) in {400, 404}:
                         raise ECMWFWindStepUnavailableError(
@@ -515,7 +519,8 @@ class ECMWFOpenDataWindProvider:
                     raise ECMWFWindDownloadTooLargeError(
                         "ECMWF wind response exceeded the configured size limit"
                     )
-                field = self._decoder(target, source, forecast_step_hours, self._now())
+                with performance_span("provider.decode"):
+                    field = self._decoder(target, source, forecast_step_hours, self._now())
                 if field.forecast_reference_time != forecast_reference_time:
                     raise ECMWFWindCorruptDownloadError(
                         "ECMWF returned a different forecast cycle"
@@ -530,7 +535,7 @@ class ECMWFOpenDataWindProvider:
     ) -> ECMWFWindField:
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(
+                to_thread_timed(
                     self._retrieve_blocking,
                     source,
                     forecast_reference_time,

@@ -618,3 +618,43 @@ python -m app.jobs.ingest_pfz
 
 See `docs/ORCA_PROJECT_CONTEXT.md` for source rules, failure contracts, and
 the complete architecture context.
+
+## Local performance diagnostics
+
+Performance Checkpoint P0 adds opt-in, request-local timing without changing
+normal response bodies or provider behavior. Diagnostics and the sanitized
+`Server-Timing` header are disabled by default. When enabled locally, traces
+separate validation, service orchestration, cache access, single-flight and
+semaphore waits, provider metadata/open/load work, deterministic
+normalization, response validation, serialization, and response emission.
+Trace names are low-cardinality; coordinates, cache keys, provider URLs,
+credentials, exception text, and local paths are never recorded.
+
+Run one isolated cold request and one same-process warm repeat with:
+
+```powershell
+python -m app.jobs.profile_marine --latitude 18.025 --longitude 70.525 `
+  --at 2026-09-01T18:00:00Z --source all `
+  --mode cold --output performance-report.json
+```
+
+`cold` means newly constructed services using an isolated in-memory cache; it
+does not flush Redis or remove application data. `warm` is the identical
+repeat in that profiling process. Live report files are ignored by Git.
+
+The P0 live run confirmed that remote catalogue/open/load work dominates the
+cold Copernicus paths (roughly 22-62 seconds), while identical warm requests
+return in about 1â€“3 ms. ECMWF's 15.2-second cold path was split across cycle
+discovery, a 1.42 MB two-message GRIB download, decoding, and deterministic
+global-grid selection. FastAPI validation and response work were generally
+only a few milliseconds. These measurements motivate a later, separately
+approved P1 snapshot/refresh design; P0 does not change refresh behavior.
+
+Configuration:
+
+```text
+PERFORMANCE_DIAGNOSTICS_ENABLED=false
+PERFORMANCE_SERVER_TIMING_ENABLED=false
+PERFORMANCE_LOG_SLOW_REQUEST_MS=1000
+PERFORMANCE_PROFILE_MAX_PROVIDER_CONCURRENCY=2
+```

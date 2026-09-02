@@ -24,6 +24,7 @@ from app.schemas.marine import (
     SourceStatus,
 )
 from app.services.cache import JsonCache
+from app.core.performance import measured_async, measured_lock, measured_sync
 from app.services.geospatial import haversine_distance_km
 
 
@@ -131,6 +132,7 @@ class CopernicusSSTService:
             update={"cache_status": status, "warnings": warnings}
         )
 
+    @measured_sync("normalize.selection")
     def _normalize(
         self,
         *,
@@ -242,6 +244,7 @@ class CopernicusSSTService:
             warnings=warnings,
         )
 
+    @measured_async("service.total")
     async def get_sst(
         self,
         *,
@@ -260,7 +263,7 @@ class CopernicusSSTService:
             return cached
 
         lock = self._locks.setdefault(cache_base, asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached = await self._cached(fresh_key, SSTCacheStatus.FRESH)
             if cached is not None:
                 return cached

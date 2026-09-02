@@ -32,6 +32,7 @@ from app.schemas.pfz import (
     SuccessfulPFZSector,
 )
 from app.services.cache import JsonCache
+from app.core.performance import annotate_trace, measured_async, measured_lock, performance_span
 from app.services.geospatial import (
     compass_direction,
     haversine_distance_km,
@@ -133,12 +134,13 @@ class PFZSnapshotService:
         pages: PFZPageBundle,
         retrieved_at: datetime,
     ) -> PFZAdvisory:
-        advisory = parse_pfz_advisory(
-            sector_html=pages.sector_html,
-            home_html=pages.home_html,
-            sector_code=pages.sector_code,
-            source_url=pages.source_url,
-        )
+        with performance_span("provider.parsing"):
+            advisory = parse_pfz_advisory(
+                sector_html=pages.sector_html,
+                home_html=pages.home_html,
+                sector_code=pages.sector_code,
+                source_url=pages.source_url,
+            )
         return advisory.model_copy(update={"fetched_at": retrieved_at})
 
     async def _normalize_sector(
@@ -165,7 +167,7 @@ class PFZSnapshotService:
 
         retry_pages: PFZPageBundle | None = None
         try:
-            async with self._retry_semaphore:
+            async with measured_lock(self._retry_semaphore, "semaphore.wait"):
                 retry_pages = await self.client.fetch_sector_once_fresh(
                     initial.discovered_sector.sector_code
                 )
@@ -198,12 +200,13 @@ class PFZSnapshotService:
     async def _refresh(self) -> PFZSnapshot:
         batch = await self.client.fetch_batch_once()
         retrieved_at = self._now()
-        normalized = await asyncio.gather(
-            *(
-                self._normalize_sector(result, retrieved_at)
-                for result in batch.sector_results
+        with performance_span("normalize.sectors"):
+            normalized = await asyncio.gather(
+                *(
+                    self._normalize_sector(result, retrieved_at)
+                    for result in batch.sector_results
+                )
             )
-        )
 
         successful = [
             result for result in normalized if isinstance(result, SuccessfulPFZSector)
@@ -286,16 +289,21 @@ class PFZSnapshotService:
             }
         )
 
+    @measured_async("service.total")
     async def get_snapshot(self) -> PFZSnapshot:
         cached = await self._load_cached(PFZ_FRESH_CACHE_KEY)
         if cached is not None:
+            annotate_trace(cache_status="fresh")
             return cached.model_copy(
                 update={"cache_status": PFZCacheStatus.FRESH}
             )
 
-        async with self._refresh_lock:
+        with performance_span("singleflight.wait"):
+            await self._refresh_lock.acquire()
+        try:
             cached = await self._load_cached(PFZ_FRESH_CACHE_KEY)
             if cached is not None:
+                annotate_trace(cache_status="fresh")
                 return cached.model_copy(
                     update={"cache_status": PFZCacheStatus.FRESH}
                 )
@@ -324,7 +332,10 @@ class PFZSnapshotService:
                 payload,
                 self.stale_ttl_seconds,
             )
+            annotate_trace(cache_status="refreshed")
             return snapshot
+        finally:
+            self._refresh_lock.release()
 
 
 class PFZNearestService:

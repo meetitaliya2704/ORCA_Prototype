@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol
 
+from app.core.performance import performance_span, to_thread_timed
+
 
 COPERNICUS_WAVE_PRODUCT_ID = "GLOBAL_ANALYSISFORECAST_WAV_001_027"
 COPERNICUS_WAVE_DATASET_VERSION = "202411"
@@ -204,7 +206,8 @@ def load_copernicus_wave_cells(
     dataset = None
     try:
         variables = [height_variable, period_variable, direction_variable]
-        dataset = copernicusmarine.open_dataset(
+        with performance_span("provider.open"):
+            dataset = copernicusmarine.open_dataset(
             dataset_id=dataset_id,
             dataset_version=dataset_version,
             variables=variables,
@@ -216,7 +219,8 @@ def load_copernicus_wave_cells(
             end_datetime=end_datetime,
             coordinates_selection_method="outside",
         )
-        dataset.load()
+        with performance_span("provider.remote_load"):
+            dataset.load()
 
         required_coordinates = ("time", "latitude", "longitude")
         if any(variable not in dataset for variable in variables) or any(
@@ -273,7 +277,7 @@ class CopernicusMarineWaveProvider:
         self._loader = loader
 
     async def fetch_cells(self, **kwargs: Any) -> list[WaveProviderCell]:
-        return await asyncio.to_thread(self._loader, **kwargs)
+        return await to_thread_timed(self._loader, **kwargs)
 
 
 class CopernicusMarineWaveCycleResolver:
@@ -281,4 +285,4 @@ class CopernicusMarineWaveCycleResolver:
         self._loader = loader
 
     async def resolve_cycle(self, **kwargs: Any) -> datetime | None:
-        return await asyncio.to_thread(self._loader, **kwargs)
+        return await to_thread_timed(self._loader, **kwargs)

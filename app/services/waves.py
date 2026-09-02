@@ -27,6 +27,7 @@ from app.schemas.marine import (
     WaveValue,
 )
 from app.services.cache import JsonCache
+from app.core.performance import measured_async, measured_lock, measured_sync
 from app.services.geospatial import haversine_distance_km
 from app.services.sst import EXACT_GRID_CELL_TOLERANCE_KM
 
@@ -176,7 +177,7 @@ class CopernicusWaveService:
             except (TypeError, ValueError):
                 pass
 
-        async with self._cycle_lock:
+        async with measured_lock(self._cycle_lock):
             cached = await self.cache.get(key)
             if isinstance(cached, dict) and "reference_time" in cached:
                 value = cached["reference_time"]
@@ -280,6 +281,7 @@ class CopernicusWaveService:
             )
         return selected
 
+    @measured_sync("normalize.selection")
     def _normalize(
         self,
         *,
@@ -389,6 +391,7 @@ class CopernicusWaveService:
             warnings=warnings,
         )
 
+    @measured_async("service.total")
     async def get_waves(
         self,
         *,
@@ -415,7 +418,7 @@ class CopernicusWaveService:
             return cached
 
         lock = self._locks.setdefault(cache_base, asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached = await self._cached(
                 fresh_key,
                 WaveCacheStatus.FRESH,

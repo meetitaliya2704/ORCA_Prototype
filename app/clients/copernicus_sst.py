@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol
 
+from app.core.performance import performance_span, to_thread_timed
+
 
 COPERNICUS_SST_PRODUCT_ID = "SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001"
 
@@ -114,7 +116,8 @@ def load_copernicus_sst_cells(
 
     dataset = None
     try:
-        dataset = copernicusmarine.open_dataset(
+        with performance_span("provider.open"):
+            dataset = copernicusmarine.open_dataset(
             dataset_id=dataset_id,
             variables=[variable, "mask"],
             minimum_latitude=minimum_latitude,
@@ -125,7 +128,8 @@ def load_copernicus_sst_cells(
             end_datetime=end_datetime,
             coordinates_selection_method="outside",
         )
-        dataset.load()
+        with performance_span("provider.remote_load"):
+            dataset.load()
 
         required_coordinates = ("time", "latitude", "longitude")
         if variable not in dataset or any(
@@ -197,4 +201,4 @@ class CopernicusMarineSSTProvider:
         self._loader = loader
 
     async def fetch_cells(self, **kwargs: Any) -> list[SSTProviderCell]:
-        return await asyncio.to_thread(self._loader, **kwargs)
+        return await to_thread_timed(self._loader, **kwargs)

@@ -33,6 +33,7 @@ from app.schemas.marine import (
     SourceStatus,
 )
 from app.services.cache import JsonCache
+from app.core.performance import measured_async, measured_lock, measured_sync
 from app.services.geospatial import haversine_distance_km
 
 
@@ -326,6 +327,7 @@ class CopernicusChlorophyllService:
             and valid_min <= value <= valid_max
         )
 
+    @measured_sync("normalize.selection")
     def _normalize(
         self,
         *,
@@ -488,6 +490,7 @@ class CopernicusChlorophyllService:
             warnings=warnings,
         )
 
+    @measured_async("service.total")
     async def get_chlorophyll(
         self,
         *,
@@ -515,7 +518,7 @@ class CopernicusChlorophyllService:
             return cached
 
         lock = self._locks.setdefault(cache_base, asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached = await self._cached(
                 fresh_key,
                 ChlorophyllCacheStatus.FRESH,
@@ -605,4 +608,3 @@ class CopernicusChlorophyllMarineSource:
             fetched_at=response.retrieved_at,
             cached=response.cache_status != ChlorophyllCacheStatus.REFRESHED,
         )
-

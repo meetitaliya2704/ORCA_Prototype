@@ -40,6 +40,7 @@ from app.schemas.marine import (
     SourceStatus,
 )
 from app.services.cache import JsonCache
+from app.core.performance import measured_async, measured_lock, measured_sync
 from app.services.geospatial import compass_direction, haversine_distance_km
 from app.services.sst import EXACT_GRID_CELL_TOLERANCE_KM
 from app.services.wind import wind_direction_from_deg, wind_speed_mps
@@ -274,7 +275,7 @@ class ECMWFWindForecastService:
         current = self._monotonic()
         if self._cycle_cache is not None and current < self._cycle_cache[1]:
             return self._cycle_cache[0], False
-        async with self._cycle_lock:
+        async with measured_lock(self._cycle_lock):
             current = self._monotonic()
             if self._cycle_cache is not None and current < self._cycle_cache[1]:
                 return self._cycle_cache[0], False
@@ -304,7 +305,7 @@ class ECMWFWindForecastService:
         if cached is not None:
             return cached
         lock = self._field_locks.setdefault(key, asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached = self.field_cache.get(key)
             if cached is not None:
                 return cached
@@ -333,6 +334,7 @@ class ECMWFWindForecastService:
                 "All configured ECMWF wind sources are unavailable"
             ) from last_error
 
+    @measured_sync("normalize.grid_selection")
     def _sample(
         self,
         field: ECMWFWindField,
@@ -373,6 +375,7 @@ class ECMWFWindForecastService:
             )
         return best
 
+    @measured_sync("normalize.calculation")
     def _normalize(
         self,
         *,
@@ -473,6 +476,7 @@ class ECMWFWindForecastService:
             }
         )
 
+    @measured_async("service.total")
     async def get_forecast(
         self,
         *,
@@ -501,7 +505,7 @@ class ECMWFWindForecastService:
         if cached is not None:
             return cached
         lock = self._point_locks.setdefault(base, asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached = await self._cached_point(
                 fresh_key, cache_status=ECMWFWindCacheStatus.FRESH
             )

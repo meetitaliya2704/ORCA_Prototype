@@ -391,3 +391,10 @@ with TestClient(app) as client:
     })
     result=subprocess.run([sys.executable,"-c",script],cwd=tmp_path,env=environment,capture_output=True,text=True,check=False)
     assert result.returncode==0,result.stderr
+
+def test_global_app_diagnostics_are_disabled_by_default() -> None:
+    from app.core.config import Settings
+
+    defaults = Settings(_env_file=None)
+    assert defaults.performance_diagnostics_enabled is False
+    assert defaults.performance_server_timing_enabled is False

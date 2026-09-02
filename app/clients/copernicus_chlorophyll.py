@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol
 
+from app.core.performance import performance_span, to_thread_timed
+
 
 COPERNICUS_CHLOROPHYLL_PRODUCT_ID = "OCEANCOLOUR_GLO_BGC_L4_NRT_009_102"
 COPERNICUS_CHLOROPHYLL_SPATIAL_RESOLUTION_KM = 4.638312
@@ -225,7 +227,8 @@ def load_copernicus_chlorophyll_cells(
 
     dataset = None
     try:
-        dataset = copernicusmarine.open_dataset(
+        with performance_span("provider.open"):
+            dataset = copernicusmarine.open_dataset(
             dataset_id=dataset_id,
             variables=[
                 chlorophyll_variable,
@@ -240,7 +243,8 @@ def load_copernicus_chlorophyll_cells(
             end_datetime=end_datetime,
             coordinates_selection_method="outside",
         )
-        dataset.load()
+        with performance_span("provider.remote_load"):
+            dataset.load()
 
         required_variables = (
             chlorophyll_variable,
@@ -329,4 +333,4 @@ class CopernicusMarineChlorophyllProvider:
         self._loader = loader
 
     async def fetch_cells(self, **kwargs: Any) -> ChlorophyllProviderResult:
-        return await asyncio.to_thread(self._loader, **kwargs)
+        return await to_thread_timed(self._loader, **kwargs)

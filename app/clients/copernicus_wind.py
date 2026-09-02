@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol
 
+from app.core.performance import performance_span, to_thread_timed
+
 
 COPERNICUS_WIND_PRODUCT_ID = "WIND_GLO_PHY_L4_NRT_012_004"
 COPERNICUS_WIND_DATASET_VERSION = "202207"
@@ -194,7 +196,8 @@ def load_copernicus_wind_cells(
         if selected_time < minimum_time:
             return WindProviderResult(cells=[])
 
-        dataset = copernicusmarine.open_dataset(
+        with performance_span("provider.open"):
+            dataset = copernicusmarine.open_dataset(
             dataset_id=dataset_id,
             dataset_version=dataset_version,
             variables=variables,
@@ -206,7 +209,8 @@ def load_copernicus_wind_cells(
             end_datetime=selected_time,
             coordinates_selection_method="outside",
         )
-        dataset.load()
+        with performance_span("provider.remote_load"):
+            dataset.load()
 
         required_coordinates = ("time", "latitude", "longitude")
         if any(variable not in dataset for variable in variables) or any(
@@ -273,4 +277,4 @@ class CopernicusMarineWindProvider:
         self._loader = loader
 
     async def fetch_cells(self, **kwargs: Any) -> WindProviderResult:
-        return await asyncio.to_thread(self._loader, **kwargs)
+        return await to_thread_timed(self._loader, **kwargs)

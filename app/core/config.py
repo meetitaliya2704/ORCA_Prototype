@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     http_read_timeout: float = 20.0
     http_retry_attempts: int = 3
 
+    performance_diagnostics_enabled: bool = False
+    performance_server_timing_enabled: bool = False
+    performance_log_slow_request_ms: float = Field(default=1000.0, ge=0)
+    performance_profile_max_provider_concurrency: int = Field(
+        default=2, ge=1, le=8
+    )
+
     incois_base_url: str = "https://incois.gov.in/MarineFisheries"
     pfz_fetch_concurrency: int = Field(default=4, ge=1, le=20)
     pfz_cache_ttl_seconds: int = Field(default=1800, ge=1, le=86400)

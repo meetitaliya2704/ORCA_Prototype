@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Protocol
 
+from app.core.performance import performance_span, to_thread_timed
+
 
 COPERNICUS_TIDE_PRODUCT_ID = "GLOBAL_ANALYSISFORECAST_PHY_001_024"
 TIDE_VARIABLES = (
@@ -188,7 +190,8 @@ def _open_dataset(**kwargs: Any) -> Any:
         raise TideDependencyMissingError(
             "Optional Copernicus Marine packages are not installed"
         ) from exc
-    return copernicusmarine.open_dataset(**kwargs)
+    with performance_span("provider.open"):
+        return copernicusmarine.open_dataset(**kwargs)
 
 
 def load_tide_times(**kwargs: Any) -> list[datetime]:
@@ -223,7 +226,8 @@ def load_tide_dynamic(**kwargs: Any) -> list[TideCell]:
             minimum_depth=kwargs["surface_depth_m"], maximum_depth=kwargs["surface_depth_m"],
             start_datetime=kwargs["start_datetime"], end_datetime=kwargs["end_datetime"],
         )
-        dataset.load()
+        with performance_span("provider.remote_load"):
+            dataset.load()
         validate_tide_metadata(dataset)
         if "depth" not in dataset.coords:
             raise InvalidTideResponseError("Sea-level response omitted the surface coordinate")
@@ -270,7 +274,8 @@ def load_tide_static(**kwargs: Any) -> list[TideStaticCell]:
             minimum_depth=kwargs.get("static_surface_depth_m", STATIC_SURFACE_LEVEL_COORDINATE_M),
             maximum_depth=kwargs.get("static_surface_depth_m", STATIC_SURFACE_LEVEL_COORDINATE_M),
         )
-        dataset.load()
+        with performance_span("provider.remote_load"):
+            dataset.load()
         if not set(STATIC_TIDE_VARIABLES).issubset(dataset.data_vars):
             raise StaticMaskUnavailableError("Static response omitted mask or bathymetry")
         cells: list[TideStaticCell] = []
@@ -341,13 +346,13 @@ class CopernicusMarineTideProvider:
         self._static_loader = static_loader
 
     async def available_times(self, **kwargs: Any) -> list[datetime]:
-        return await asyncio.to_thread(self._time_loader, **kwargs)
+        return await to_thread_timed(self._time_loader, **kwargs)
 
     async def fetch_dynamic(self, **kwargs: Any) -> list[TideCell]:
-        return await asyncio.to_thread(self._dynamic_loader, **kwargs)
+        return await to_thread_timed(self._dynamic_loader, **kwargs)
 
     async def fetch_static(self, **kwargs: Any) -> list[TideStaticCell]:
-        return await asyncio.to_thread(self._static_loader, **kwargs)
+        return await to_thread_timed(self._static_loader, **kwargs)
 
 
 class CopernicusTideMetadataResolver:
@@ -355,4 +360,4 @@ class CopernicusTideMetadataResolver:
         self._loader = loader
 
     async def resolve(self, **kwargs: Any) -> TideTimeMetadata | None:
-        return await asyncio.to_thread(self._loader, **kwargs)
+        return await to_thread_timed(self._loader, **kwargs)

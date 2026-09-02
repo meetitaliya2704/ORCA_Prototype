@@ -8,3 +8,5 @@ __pycache__/
 *.grib2
 *.idx
 *.part
+performance-report*.json
+runtime/performance/

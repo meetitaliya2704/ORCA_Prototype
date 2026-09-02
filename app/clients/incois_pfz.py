@@ -8,6 +8,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
+from app.core.performance import performance_span
+
 from app.parsers.pfz_html import (
     PFZParseError,
     is_valid_pfz_sector_html,
@@ -162,10 +164,11 @@ class IncoisPFZClient:
     async def _bootstrap(self, client: httpx.AsyncClient) -> httpx.Response:
         response: httpx.Response | None = None
         try:
-            response = await client.get(
-                f"{self.base_url}/TextDataHome",
-                params={"mfid": "1", "request_locale": "en"},
-            )
+            with performance_span("provider.session_bootstrap"):
+                response = await client.get(
+                    f"{self.base_url}/TextDataHome",
+                    params={"mfid": "1", "request_locale": "en"},
+                )
             response.raise_for_status()
             return response
         except httpx.HTTPError as exc:
@@ -190,11 +193,12 @@ class IncoisPFZClient:
         async def fetch() -> PFZPageBundle:
             response: httpx.Response | None = None
             try:
-                response = await client.get(
-                    f"{self.base_url}/TextData",
-                    params={"secid": sector_code},
-                    headers={"Referer": self.home_url},
-                )
+                with performance_span("provider.sector_retrieval"):
+                    response = await client.get(
+                        f"{self.base_url}/TextData",
+                        params={"secid": sector_code},
+                        headers={"Referer": self.home_url},
+                    )
                 response.raise_for_status()
             except httpx.HTTPError as exc:
                 log_pfz_failure(
@@ -209,7 +213,9 @@ class IncoisPFZClient:
                 ) from exc
 
             assert response is not None
-            if not is_valid_pfz_sector_html(response.text):
+            with performance_span("provider.html_validation"):
+                valid_page = is_valid_pfz_sector_html(response.text)
+            if not valid_page:
                 error = PFZParseError(
                     f"INCOIS PFZ sector {sector_code} is missing page markers",
                     stage="page_marker_validation",
@@ -235,8 +241,12 @@ class IncoisPFZClient:
 
         if semaphore is None:
             return await fetch()
-        async with semaphore:
+        with performance_span("semaphore.wait"):
+            await semaphore.acquire()
+        try:
             return await fetch()
+        finally:
+            semaphore.release()
 
     async def fetch_batch_once(self) -> PFZBatchPageBundle:
         """Bootstrap once and fetch all dynamically discovered sectors."""
@@ -244,7 +254,8 @@ class IncoisPFZClient:
             home_response = await self._bootstrap(client)
             home_html = home_response.text
             try:
-                discovered = tuple(parse_pfz_sector_options(home_html))
+                with performance_span("provider.sector_discovery"):
+                    discovered = tuple(parse_pfz_sector_options(home_html))
             except PFZParseError as exc:
                 log_pfz_failure(
                     stage=exc.stage,

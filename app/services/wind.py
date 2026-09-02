@@ -27,6 +27,7 @@ from app.schemas.marine import (
     WindValue,
 )
 from app.services.cache import JsonCache
+from app.core.performance import measured_async, measured_lock, measured_sync
 from app.services.geospatial import compass_direction, haversine_distance_km
 from app.services.sst import EXACT_GRID_CELL_TOLERANCE_KM
 
@@ -210,6 +211,7 @@ class CopernicusWindService:
             )
         return selected
 
+    @measured_sync("normalize.selection")
     def _normalize(
         self,
         *,
@@ -302,6 +304,7 @@ class CopernicusWindService:
             warnings=warnings,
         )
 
+    @measured_async("service.total")
     async def get_wind(
         self,
         *,
@@ -324,7 +327,7 @@ class CopernicusWindService:
             return cached
 
         lock = self._locks.setdefault(cache_base, asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached = await self._cached(fresh_key, WindCacheStatus.FRESH, query_time)
             if cached is not None:
                 return cached

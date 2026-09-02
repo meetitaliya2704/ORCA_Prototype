@@ -40,6 +40,7 @@ from app.schemas.marine import (
     TideTimeClassification,
 )
 from app.services.cache import JsonCache
+from app.core.performance import measured_async, measured_lock, measured_sync
 from app.services.geospatial import haversine_distance_km
 
 
@@ -124,6 +125,7 @@ def _quadratic_event(
     return event
 
 
+@measured_sync("normalize.event_detection")
 def detect_extrema(
     samples: list[tuple[datetime, float | None]], *, start: datetime,
     end: datetime, interpolate: bool, minimum_consecutive: int = 3,
@@ -249,7 +251,7 @@ class CopernicusTideService:
         cached=self._availability_cache.get(key)
         if cached and self._monotonic()<cached[1] and covers(cached[0]): return cached[0]
         lock=self._availability_locks.setdefault(key,asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached=self._availability_cache.get(key)
             if cached and self._monotonic()<cached[1] and covers(cached[0]): return cached[0]
             times=await self._fetch_times(latitude,longitude,query_start,query_end)
@@ -279,7 +281,7 @@ class CopernicusTideService:
         cached=self._static_cache.get(identity)
         if cached and self._monotonic()<cached[1]: return cached[0]
         lock=self._static_locks.setdefault(identity,asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached=self._static_cache.get(identity)
             if cached and self._monotonic()<cached[1]: return cached[0]
             cells=[]
@@ -299,7 +301,7 @@ class CopernicusTideService:
         cached=self._field_cache.get(identity)
         if cached and self._monotonic()<cached[1]: return cached[0]
         lock=self._field_locks.setdefault(identity,asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached=self._field_cache.get(identity)
             if cached and self._monotonic()<cached[1]: return cached[0]
             cells=[]
@@ -331,6 +333,7 @@ class CopernicusTideService:
             cell.global_mean_mass_volume_variation,
         ))
 
+    @measured_sync("normalize.selection")
     def _select_cell(self, cells: list[TideCell], static: list[TideStaticCell], latitude: float, longitude: float, valid_time: datetime) -> tuple[TideCell,TideStaticCell,float,TideSamplingQuality]:
         at_time=[cell for cell in cells if cell.valid_time==valid_time]
         if not at_time: raise NoValidTideCellError("No dynamic cells exist at selected time")
@@ -374,6 +377,7 @@ class CopernicusTideService:
     def _point_identity(self, latitude: float, longitude: float, selected: datetime, reference: datetime|None) -> str:
         return _digest({"provider":"Copernicus Marine Service","product":COPERNICUS_TIDE_PRODUCT_ID,"dataset":self.dataset_id,"version":self.dataset_version,"static":self.static_dataset_id,"static_version":self.static_dataset_version,"static_part":self.static_dataset_part,"variables":list(TIDE_VARIABLES),"lat":f"{latitude:.6f}","lon":f"{longitude:.6f}","selected":selected.isoformat(),"reference":reference.isoformat() if reference else None,"radius":self.max_radius_km,"alignment":self.static_alignment_tolerance_km,"time_tolerance":self.time_tolerance_hours,"horizon":self.max_horizon_hours,"decomposition_tolerance":self.decomposition_tolerance_m,"depth":self.surface_depth_m,"schema":TIDE_SCHEMA_VERSION})
 
+    @measured_sync("normalize.calculation")
     def _build_point(self, cell:TideCell,static:TideStaticCell,distance:float,quality:TideSamplingQuality,latitude:float,longitude:float,classification:TideTimeClassification,reference:datetime|None,lead:float|None,cache_status:TideCacheStatus,warnings:list[str]) -> SeaLevelResponse:
         assert all(value is not None for value in (cell.total_sea_level,cell.ocean_tide,cell.tide_loading,cell.invert_barometer,cell.sea_surface_height,cell.global_mean_steric_variation,cell.global_mean_mass_volume_variation))
         reconstructed=cell.ocean_tide+cell.invert_barometer+cell.sea_surface_height+cell.global_mean_steric_variation+cell.global_mean_mass_volume_variation  # type: ignore[operator]
@@ -401,6 +405,7 @@ class CopernicusTideService:
             cache_status=cache_status,retrieved_at=self._now().astimezone(UTC),warnings=list(dict.fromkeys(warnings)),
         )
 
+    @measured_async("service.total")
     async def get_sea_level(self, *, latitude:float, longitude:float, at:datetime|None=None) -> SeaLevelResponse:
         now=self._now().astimezone(UTC); requested=now if at is None else at
         if requested.tzinfo is None or requested.utcoffset() is None: raise InvalidTideTimeError("Sea-level time must be timezone-aware")
@@ -413,7 +418,7 @@ class CopernicusTideService:
         if cached is not None:
             response=SeaLevelResponse.model_validate(cached); response.cache_status=TideCacheStatus.FRESH; return response
         lock=self._locks.setdefault(identity,asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached=await self.cache.get(fresh_key)
             if cached is not None:
                 response=SeaLevelResponse.model_validate(cached); response.cache_status=TideCacheStatus.FRESH; return response
@@ -436,6 +441,7 @@ class CopernicusTideService:
     def _event_identity(self, latitude:float,longitude:float,start:datetime,end:datetime,hours:int,interpolate:bool) -> str:
         return _digest({"lat":f"{latitude:.6f}","lon":f"{longitude:.6f}","start":start.isoformat(),"end":end.isoformat(),"hours":hours,"dataset":self.dataset_id,"version":self.dataset_version,"variables":list(TIDE_VARIABLES),"radius":self.max_radius_km,"static":self.static_dataset_id,"static_version":self.static_dataset_version,"alignment":self.static_alignment_tolerance_km,"minimum_samples":self.minimum_consecutive_samples,"event_algorithm":EVENT_ALGORITHM_VERSION,"interpolate":interpolate,"uncertainty_minutes":60,"schema":TIDE_SCHEMA_VERSION})
 
+    @measured_async("service.total")
     async def get_events(self, *, latitude:float,longitude:float,start:datetime|None=None,hours:int=48,interpolate:bool=True) -> SeaLevelEventsResponse:
         now=self._now().astimezone(UTC); requested=now if start is None else start
         if requested.tzinfo is None or requested.utcoffset() is None: raise InvalidTideTimeError("Event start must be timezone-aware")
@@ -447,7 +453,7 @@ class CopernicusTideService:
         if cached is not None:
             response=SeaLevelEventsResponse.model_validate(cached); response.cache_status=TideCacheStatus.FRESH; return response
         lock=self._locks.setdefault("events:"+identity,asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached=await self.cache.get(key)
             if cached is not None:
                 response=SeaLevelEventsResponse.model_validate(cached); response.cache_status=TideCacheStatus.FRESH; return response

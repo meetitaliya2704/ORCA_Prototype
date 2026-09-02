@@ -37,6 +37,7 @@ from app.schemas.marine import (
     SourceStatus,
 )
 from app.services.cache import JsonCache
+from app.core.performance import measured_async, measured_lock, measured_sync
 from app.services.geospatial import haversine_distance_km
 
 
@@ -168,6 +169,7 @@ class CopernicusCurrentService:
         self._field_cache[field_key]=(cells,self._monotonic()+self.fresh_ttl_seconds)
         return cells
 
+    @measured_sync("normalize.selection")
     def _select_cell(self, cells: list[CurrentProviderCell], latitude: float, longitude: float, selected_time: datetime) -> tuple[CurrentProviderCell,float,CurrentSamplingQuality]:
         ranked=[]; all_ranked=[]
         for cell in cells:
@@ -183,6 +185,7 @@ class CopernicusCurrentService:
         else: quality=CurrentSamplingQuality.NEAREST_VALID_WATER_CELL
         return selected[3],selected[0],quality
 
+    @measured_sync("normalize.calculation")
     def _build(self, cell: CurrentProviderCell, distance: float, quality: CurrentSamplingQuality, latitude: float, longitude: float, selected: datetime, reference: datetime | None, cache_status: CurrentCacheStatus, extra_warnings: list[str]) -> CurrentResponse:
         assert cell.utotal is not None and cell.vtotal is not None
         speed,direction,compass=current_speed_direction(cell.utotal,cell.vtotal,self.calm_threshold_mps)
@@ -227,6 +230,7 @@ class CopernicusCurrentService:
             evidence_quality=evidence,cache_status=cache_status,warnings=list(dict.fromkeys(warnings)),
         )
 
+    @measured_async("service.total")
     async def get_current(self, *, latitude: float, longitude: float, at: datetime | None = None) -> CurrentResponse:
         now=self._now().astimezone(UTC); longitude=normalize_longitude(longitude)
         requested=now if at is None else at
@@ -253,7 +257,7 @@ class CopernicusCurrentService:
         if cached is not None:
             response=CurrentResponse.model_validate(cached); response.cache_status=CurrentCacheStatus.FRESH; return response
         lock=self._locks.setdefault(digest,asyncio.Lock())
-        async with lock:
+        async with measured_lock(lock):
             cached=await self.cache.get(fresh_key)
             if cached is not None:
                 response=CurrentResponse.model_validate(cached); response.cache_status=CurrentCacheStatus.FRESH; return response

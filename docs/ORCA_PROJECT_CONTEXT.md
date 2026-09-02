@@ -667,6 +667,53 @@ Use saved HTML fixtures for every known INCOIS page variation. Never call the li
 - D6-1A complete: event padding/off-by-one behavior, omitted-time availability
   caching, surface-coordinate terminology, static-depth request bounds, and
   combined endpoint guarantees are hardened and regression tested.
+- Performance P0 complete: optional request-local monotonic tracing now
+  measures validation, orchestration, cache/single-flight waits, provider
+  metadata/open/load/decode work, deterministic normalization, response work,
+  and combined-source concurrency. A local profiler uses isolated in-memory
+  caches, performs one cold request plus one warm repeat, limits heavy provider
+  work to two concurrent operations, and never flushes production caches.
+
+### Performance diagnostics boundary
+
+- Diagnostics and `Server-Timing` are disabled by default and never alter
+  response bodies.
+- Trace context is isolated with `contextvars`; blocking Toolbox work retains
+  request/source attribution through `asyncio.to_thread`.
+- Safe logs contain stable route/source/phase names and durations only. They
+  exclude coordinates, cache keys, provider URLs, credentials, paths, and raw
+  exceptions.
+- Combined-condition traces retain per-source start offsets and durations,
+  wall-clock critical path, source concurrency, and separately bounded heavy
+  provider concurrency. Concurrent durations are not added to claim a wall
+  time.
+- P0 is measurement only. Snapshot scheduling, stale-while-revalidate, startup
+  warm-up, and `202 refresh-in-progress` behavior remain candidates for P1 and
+  are not implemented.
+
+The 2026-09-03 isolated live profile (open-ocean point, one cold call and one
+identical warm repeat) found cold/warm totals in milliseconds: PFZ 6,372/2.9,
+SST 27,958/1.3, chlorophyll 24,190/1.3, waves 34,890/1.2, recent wind
+23,080/1.4, ECMWF forecast wind 15,195/2.8, currents 61,671/1.5, sea level
+49,655/0.8, and sea-level events 22,197/0.9. Provider work occupied roughly
+all cold wall time except PFZ (network plus parsing) and ECMWF (download/decode
+plus 3.52 seconds of global-grid selection). Worker queue overhead was only
+about 0.6–3.4 ms, so the isolated runs did not indicate thread-pool starvation.
+The combined endpoint completed in 3.5 ms after its source point caches were
+warm; offline synchronization tests prove its source tasks overlap, but P0 did
+not repeat a second provider-cold combined run merely to benchmark contention.
+
+P1 recommendation (not implemented): maintain publication-aware, bounded
+regional snapshots in background jobs; reuse the shared weekly static-mask
+snapshot and short-lived availability/cycle metadata; serve fresh or eligible
+stale snapshots immediately while one bounded refresh runs; return 202 with
+refresh metadata only when no snapshot exists; and limit heavy provider work
+to two operations. PFZ follows advisory validity, daily SST/chlorophyll and
+blended wind follow provider publication, wave/current/sea-level schedules
+follow their model cadence, and ECMWF follows completed forecast cycles.
+Uncommon ECMWF steps and arbitrary event windows remain on demand, while tide
+events should derive from cached sea-level series where their ranges overlap.
+The complete P0 offline suite passes with 492 tests.
 
 ### Checkpoint E — combined conditions and safety
 

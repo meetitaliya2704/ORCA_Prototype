@@ -10,6 +10,12 @@ from app.schemas.marine import (
     SourceStatus,
 )
 from app.services.cache import JsonCache
+from app.core.performance import (
+    annotate_trace,
+    measured_async,
+    performance_span,
+    source_timing,
+)
 
 
 class MarineConditionsService:
@@ -25,6 +31,7 @@ class MarineConditionsService:
         self.sources = sources
         self.cache_ttl = cache_ttl
 
+    @measured_async("service.total")
     async def get_conditions(
         self,
         latitude: float,
@@ -38,16 +45,25 @@ class MarineConditionsService:
         cached = await self.cache.get(cache_key)
 
         if cached is not None:
-            response = MarineConditionsResponse.model_validate(cached)
+            with performance_span("response.validation"):
+                response = MarineConditionsResponse.model_validate(cached)
             for result in response.sources.values():
                 result.cached = True
                 result.status = SourceStatus.CACHED
+            annotate_trace(cache_status="fresh")
             return response
 
-        tasks = [
-            source.fetch(self.client, latitude, longitude, at)
-            for source in self.sources
-        ]
+        async def fetch_source(source: MarineSource):
+            with source_timing(source.name) as timeline:
+                result = await source.fetch(self.client, latitude, longitude, at)
+                if timeline is not None and result.status in {
+                    SourceStatus.UNAVAILABLE,
+                    SourceStatus.INVALID,
+                }:
+                    timeline.outcome = result.status.value
+                return result
+
+        tasks = [fetch_source(source) for source in self.sources]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         results: dict[str, SourceResult] = {}
@@ -61,16 +77,18 @@ class MarineConditionsService:
             else:
                 results[source.name] = result
 
-        response = MarineConditionsResponse(
-            latitude=latitude,
-            longitude=longitude,
-            generated_at=datetime.now(UTC),
-            sources=results,
-        )
+        with performance_span("response.validation"):
+            response = MarineConditionsResponse(
+                latitude=latitude,
+                longitude=longitude,
+                generated_at=datetime.now(UTC),
+                sources=results,
+            )
         await self.cache.set(
             cache_key,
             response.model_dump(mode="json"),
             self.cache_ttl,
         )
+        annotate_trace(cache_status="refreshed")
         return response
 

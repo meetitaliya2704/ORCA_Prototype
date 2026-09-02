@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import asyncio
 
 import httpx
 from fastapi import FastAPI
@@ -28,6 +29,12 @@ from app.clients.copernicus_wind import (
 from app.clients.ecmwf_wind import ECMWFOpenDataWindProvider
 from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
+from app.core.performance import (
+    InstrumentedAsyncProxy,
+    InstrumentedJsonCache,
+    PerformanceMiddleware,
+    PerformanceRecorder,
+)
 from app.services.cache import MemoryJsonCache, RedisJsonCache
 from app.services.chlorophyll import (
     CopernicusChlorophyllMarineSource,
@@ -58,8 +65,37 @@ from app.services.wind_forecast import (
 settings = get_settings()
 
 
+def _measured(
+    target, phases: dict[str, str], enabled: bool,
+    semaphore: asyncio.Semaphore | None = None,
+):
+    return InstrumentedAsyncProxy(target, phases, semaphore) if enabled else target
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    diagnostics_enabled = bool(
+        getattr(
+            app.state,
+            "performance_diagnostics_enabled",
+            settings.performance_diagnostics_enabled,
+        )
+    )
+    instrumentation_enabled = diagnostics_enabled or bool(
+        getattr(
+            app.state,
+            "performance_server_timing_enabled",
+            settings.performance_server_timing_enabled,
+        )
+    )
+    profile_semaphore = (
+        asyncio.Semaphore(settings.performance_profile_max_provider_concurrency)
+        if getattr(app.state, "performance_isolated_cache", False)
+        else None
+    )
+    measure = lambda target, phases: _measured(
+        target, phases, instrumentation_enabled, profile_semaphore
+    )
     timeout = httpx.Timeout(
         connect=settings.http_connect_timeout,
         read=settings.http_read_timeout,
@@ -69,15 +105,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     transport = httpx.AsyncHTTPTransport(retries=1)
     client = httpx.AsyncClient(timeout=timeout, transport=transport)
 
-    if settings.redis_enabled:
+    if getattr(app.state, "performance_isolated_cache", False):
+        base_cache = MemoryJsonCache()
+    elif settings.redis_enabled:
         assert settings.redis_url is not None
-        cache = RedisJsonCache(settings.redis_url)
+        base_cache = RedisJsonCache(settings.redis_url)
     else:
-        cache = MemoryJsonCache()
+        base_cache = MemoryJsonCache()
+    cache = InstrumentedJsonCache(base_cache) if instrumentation_enabled else base_cache
 
     if settings.copernicus_sst_enabled:
         sst_service = CopernicusSSTService(
-            provider=CopernicusMarineSSTProvider(),
+            provider=measure(
+                CopernicusMarineSSTProvider(),
+                {"fetch_cells": "provider.load"},
+            ),
             cache=cache,
             dataset_id=settings.copernicus_sst_dataset_id,
             variable=settings.copernicus_sst_variable,
@@ -94,8 +136,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if settings.copernicus_waves_enabled:
         wave_service = CopernicusWaveService(
-            provider=CopernicusMarineWaveProvider(),
-            cycle_resolver=CopernicusMarineWaveCycleResolver(),
+            provider=measure(
+                CopernicusMarineWaveProvider(),
+                {"fetch_cells": "provider.load"},
+            ),
+            cycle_resolver=measure(
+                CopernicusMarineWaveCycleResolver(),
+                {"resolve_cycle": "provider.metadata"},
+            ),
             cache=cache,
             dataset_id=settings.copernicus_waves_dataset_id,
             dataset_version=COPERNICUS_WAVE_DATASET_VERSION,
@@ -120,7 +168,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if settings.copernicus_wind_enabled:
         wind_service = CopernicusWindService(
-            provider=CopernicusMarineWindProvider(),
+            provider=measure(
+                CopernicusMarineWindProvider(),
+                {"fetch_cells": "provider.load"},
+            ),
             cache=cache,
             dataset_id=settings.copernicus_wind_dataset_id,
             dataset_version=COPERNICUS_WIND_DATASET_VERSION,
@@ -139,7 +190,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if settings.chlorophyll_enabled:
         chlorophyll_service = CopernicusChlorophyllService(
-            provider=CopernicusMarineChlorophyllProvider(),
+            provider=measure(
+                CopernicusMarineChlorophyllProvider(),
+                {"fetch_cells": "provider.load"},
+            ),
             cache=cache,
             dataset_id=settings.chlorophyll_dataset_id,
             dataset_version=settings.chlorophyll_dataset_version,
@@ -169,8 +223,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if settings.copernicus_currents_enabled:
         current_service = CopernicusCurrentService(
-            provider=CopernicusMarineCurrentProvider(),
-            metadata_resolver=CopernicusCurrentMetadataResolver(),
+            provider=measure(
+                CopernicusMarineCurrentProvider(),
+                {
+                    "available_times": "provider.availability",
+                    "fetch_cells": "provider.load",
+                },
+            ),
+            metadata_resolver=measure(
+                CopernicusCurrentMetadataResolver(),
+                {"resolve": "provider.metadata"},
+            ),
             cache=cache,
             dataset_id=settings.copernicus_currents_dataset_id,
             dataset_version=settings.copernicus_currents_dataset_version,
@@ -194,8 +257,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if settings.copernicus_tides_enabled:
         tide_service = CopernicusTideService(
-            provider=CopernicusMarineTideProvider(),
-            metadata_resolver=CopernicusTideMetadataResolver(),
+            provider=measure(
+                CopernicusMarineTideProvider(),
+                {
+                    "available_times": "provider.availability",
+                    "fetch_dynamic": "provider.load",
+                    "fetch_static": "provider.static_mask",
+                },
+            ),
+            metadata_resolver=measure(
+                CopernicusTideMetadataResolver(),
+                {"resolve": "provider.metadata"},
+            ),
             cache=cache,
             dataset_id=settings.copernicus_tides_dataset_id,
             dataset_version=settings.copernicus_tides_dataset_version,
@@ -240,7 +313,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             max_download_bytes=settings.ecmwf_wind_max_download_bytes,
         )
         ecmwf_wind_service = ECMWFWindForecastService(
-            provider=ecmwf_provider,
+            provider=measure(
+                ecmwf_provider,
+                {
+                    "discover_cycles": "provider.availability",
+                    "retrieve_field": "provider.load",
+                },
+            ),
             point_cache=cache,
             field_cache=BoundedWindFieldCache(
                 ttl_seconds=settings.ecmwf_wind_field_cache_ttl_seconds,
@@ -313,4 +392,10 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.state.performance_diagnostics_enabled = settings.performance_diagnostics_enabled
+app.state.performance_server_timing_enabled = settings.performance_server_timing_enabled
+app.state.performance_log_slow_request_ms = settings.performance_log_slow_request_ms
+app.state.performance_recorder = PerformanceRecorder()
+app.state.performance_isolated_cache = False
+app.add_middleware(PerformanceMiddleware)
 app.include_router(api_router, prefix=settings.api_prefix)

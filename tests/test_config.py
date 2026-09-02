@@ -15,6 +15,10 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.pfz_fetch_concurrency == 4
     assert settings.pfz_cache_ttl_seconds == 1800
     assert settings.pfz_stale_ttl_seconds == 86400
+    assert settings.performance_diagnostics_enabled is False
+    assert settings.performance_server_timing_enabled is False
+    assert settings.performance_log_slow_request_ms == 1000
+    assert settings.performance_profile_max_provider_concurrency == 2
     assert settings.copernicus_sst_enabled is False
     assert (
         settings.copernicus_sst_dataset_id
@@ -88,6 +92,19 @@ def test_enabled_redis_requires_a_url() -> None:
             redis_enabled=True,
             redis_url="",
         )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"performance_log_slow_request_ms": -1},
+        {"performance_profile_max_provider_concurrency": 0},
+        {"performance_profile_max_provider_concurrency": 9},
+    ],
+)
+def test_performance_diagnostics_configuration_is_bounded(overrides) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
 
 
 def test_tide_cache_ttls_must_be_ordered() -> None:
