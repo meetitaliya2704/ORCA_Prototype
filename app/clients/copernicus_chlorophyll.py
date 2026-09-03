@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol
 
+import httpx
+
 from app.core.performance import performance_span, to_thread_timed
 
 
@@ -33,8 +35,59 @@ class ChlorophyllSourceUnavailableError(ChlorophyllProviderError):
     pass
 
 
+class ChlorophyllRateLimitedError(ChlorophyllSourceUnavailableError):
+    def __init__(self, message: str, *, retry_after_seconds: int | None = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class InvalidChlorophyllResponseError(ChlorophyllProviderError):
     pass
+
+
+def map_chlorophyll_provider_exception(exc: Exception) -> ChlorophyllProviderError:
+    """Map typed/status-bearing causes; ambiguous auth-boundary errors stay transient."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    for _ in range(10):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        name = type(current).__name__
+        response = getattr(current, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if status_code is None:
+            status_code = getattr(current, "status_code", None)
+        if status_code in (401, 403) or name == "InvalidUsernameOrPassword":
+            return ChlorophyllAuthenticationError(
+                "Copernicus Marine chlorophyll authentication was rejected"
+            )
+        if name == "CredentialsCannotBeNone":
+            return ChlorophyllSourceNotConfiguredError(
+                "Copernicus Marine chlorophyll credentials are not configured"
+            )
+        if name == "CouldNotConnectToAuthenticationSystem":
+            return ChlorophyllSourceUnavailableError(
+                "Copernicus Marine authentication service is temporarily unavailable"
+            )
+        if status_code == 429:
+            retry_after = getattr(current, "retry_after_seconds", None)
+            return ChlorophyllRateLimitedError(
+                "Copernicus Marine chlorophyll source is rate limited",
+                retry_after_seconds=(retry_after if isinstance(retry_after, int) else None),
+            )
+        if isinstance(status_code, int) and status_code >= 500:
+            return ChlorophyllSourceUnavailableError(
+                "Copernicus Marine chlorophyll source is temporarily unavailable"
+            )
+        if isinstance(current, (httpx.TransportError, TimeoutError, ConnectionError, OSError)):
+            return ChlorophyllSourceUnavailableError(
+                "Copernicus Marine chlorophyll transport is temporarily unavailable"
+            )
+        current = current.__cause__ or current.__context__
+    return ChlorophyllSourceUnavailableError(
+        "Copernicus Marine chlorophyll source is unavailable"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +137,11 @@ class ChlorophyllProvider(Protocol):
         maximum_longitude: float,
         start_datetime: datetime,
         end_datetime: datetime,
+    ) -> ChlorophyllProviderResult: ...
+
+    async def fetch_region(
+        self,
+        **kwargs: Any,
     ) -> ChlorophyllProviderResult: ...
 
 
@@ -185,22 +243,6 @@ def _scalar_at(variable: Any, selector: dict[str, Any]) -> Any:
             "Copernicus chlorophyll variable did not resolve to one value"
         )
     return selected.item()
-
-
-def _looks_like_authentication_failure(exc: Exception) -> bool:
-    details = f"{type(exc).__name__} {exc}".lower()
-    return any(
-        token in details
-        for token in (
-            "auth",
-            "credential",
-            "forbidden",
-            "login",
-            "password",
-            "unauthorized",
-            "username",
-        )
-    )
 
 
 def load_copernicus_chlorophyll_cells(
@@ -311,13 +353,7 @@ def load_copernicus_chlorophyll_cells(
     except ChlorophyllProviderError:
         raise
     except Exception as exc:
-        if _looks_like_authentication_failure(exc):
-            raise ChlorophyllAuthenticationError(
-                "Copernicus Marine credentials are missing or invalid"
-            ) from exc
-        raise ChlorophyllSourceUnavailableError(
-            "Copernicus Marine chlorophyll source is unavailable"
-        ) from exc
+        raise map_chlorophyll_provider_exception(exc) from exc
     finally:
         if dataset is not None:
             dataset.close()
@@ -333,4 +369,8 @@ class CopernicusMarineChlorophyllProvider:
         self._loader = loader
 
     async def fetch_cells(self, **kwargs: Any) -> ChlorophyllProviderResult:
+        return await to_thread_timed(self._loader, **kwargs)
+
+    async def fetch_region(self, **kwargs: Any) -> ChlorophyllProviderResult:
+        """Load one bounded regional field; never loop over point requests."""
         return await to_thread_timed(self._loader, **kwargs)

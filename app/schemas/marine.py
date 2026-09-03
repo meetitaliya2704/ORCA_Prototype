@@ -91,6 +91,61 @@ class SSTResponse(BaseModel):
         return self
 
 
+class SSTSnapshotStatus(StrEnum):
+    FRESH = "fresh"
+    STALE = "stale"
+    STALE_REFRESHING = "stale_refreshing"
+
+
+class SSTSnapshotMetadata(BaseModel):
+    status: SSTSnapshotStatus
+    snapshot_id: str | None = None
+    tile_id: str
+    provider_valid_time: datetime
+    refreshed_at: datetime
+    fresh_until: datetime
+    stale_until: datetime
+    refresh_job_id: str | None = None
+    refresh_blocked_until: datetime | None = None
+
+
+class SSTSnapshotResponse(SSTResponse):
+    snapshot: SSTSnapshotMetadata
+
+
+class RefreshTileReference(BaseModel):
+    id: str
+
+
+class RefreshAcceptedResponse(BaseModel):
+    status: Literal["refreshing"] = "refreshing"
+    code: Literal["MARINE_DATA_REFRESH_IN_PROGRESS"] = (
+        "MARINE_DATA_REFRESH_IN_PROGRESS"
+    )
+    source: Literal["sst", "chlorophyll"] = "sst"
+    job_id: str
+    tile: RefreshTileReference
+    retry_after_seconds: int = Field(default=5, ge=1)
+
+
+class RefreshJobResponse(BaseModel):
+    job_id: str
+    source: Literal["sst", "chlorophyll"] = "sst"
+    tile_id: str
+    state: Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"]
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    attempt_count: int = Field(ge=0)
+    snapshot_valid_time: datetime | None = None
+    error_code: str | None = None
+    message: str | None = None
+    retryable: bool | None = None
+    next_retry_at: datetime | None = None
+    retry_after_seconds: int | None = Field(default=5, ge=1)
+    snapshot_available: bool
+
+
 class ChlorophyllCacheStatus(StrEnum):
     FRESH = "fresh"
     REFRESHED = "refreshed"
@@ -170,6 +225,10 @@ class ChlorophyllResponse(BaseModel):
         if any(value.tzinfo is None or value.utcoffset() is None for value in values):
             raise ValueError("chlorophyll timestamps must be timezone-aware")
         return self
+
+
+class ChlorophyllSnapshotResponse(ChlorophyllResponse):
+    snapshot: SSTSnapshotMetadata
 
 
 class CurrentCacheStatus(StrEnum):

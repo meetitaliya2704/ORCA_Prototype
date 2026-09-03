@@ -1,7 +1,12 @@
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class MarineSnapshotPrewarmPoint(BaseModel):
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
 
 
 class Settings(BaseSettings):
@@ -22,6 +27,36 @@ class Settings(BaseSettings):
     performance_log_slow_request_ms: float = Field(default=1000.0, ge=0)
     performance_profile_max_provider_concurrency: int = Field(
         default=2, ge=1, le=8
+    )
+
+    marine_snapshots_enabled: bool = False
+    marine_snapshot_tile_size_degrees: float = Field(default=2.0, gt=0, le=30)
+    marine_snapshot_heavy_concurrency: int = Field(default=2, ge=1, le=8)
+    marine_snapshot_wait_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
+    marine_snapshot_scheduler_check_seconds: float = Field(default=60.0, gt=0, le=86400)
+    marine_snapshot_startup_warm_enabled: bool = False
+    marine_snapshot_max_stale_seconds: int = Field(default=172800, ge=1, le=2592000)
+    marine_snapshot_job_retention_seconds: int = Field(default=3600, ge=60, le=604800)
+    sst_snapshot_refresh_check_seconds: int = Field(default=21600, ge=60, le=604800)
+    sst_snapshot_fresh_seconds: int = Field(default=86400, ge=1, le=604800)
+    sst_snapshot_time_lookback_days: int = Field(default=3, ge=1, le=30)
+    sst_snapshot_retryable_base_delay_seconds: int = Field(default=30, ge=1, le=900)
+    sst_snapshot_retryable_max_delay_seconds: int = Field(default=900, ge=1, le=86400)
+    sst_snapshot_non_retryable_cooldown_seconds: int = Field(default=900, ge=1, le=86400)
+    chlorophyll_snapshots_enabled: bool = False
+    chlorophyll_snapshot_startup_warm_enabled: bool = False
+    chlorophyll_snapshot_refresh_check_seconds: int = Field(
+        default=21600, ge=60, le=604800
+    )
+    chlorophyll_snapshot_fresh_seconds: int = Field(default=86400, ge=1, le=604800)
+    chlorophyll_snapshot_max_stale_seconds: int = Field(
+        default=172800, ge=1, le=2592000
+    )
+    chlorophyll_snapshot_schema_version: str = Field(
+        default="chlorophyll-snapshot-v1", min_length=1
+    )
+    marine_snapshot_prewarm_points_json: list[MarineSnapshotPrewarmPoint] = Field(
+        default_factory=list
     )
 
     incois_base_url: str = "https://incois.gov.in/MarineFisheries"
@@ -245,6 +280,31 @@ class Settings(BaseSettings):
             raise ValueError(
                 "COPERNICUS_SST_STALE_TTL_SECONDS must be greater than or "
                 "equal to COPERNICUS_SST_CACHE_TTL_SECONDS"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def snapshot_windows_are_ordered(self) -> "Settings":
+        if self.marine_snapshot_max_stale_seconds < self.sst_snapshot_fresh_seconds:
+            raise ValueError(
+                "MARINE_SNAPSHOT_MAX_STALE_SECONDS must be greater than or equal "
+                "to SST_SNAPSHOT_FRESH_SECONDS"
+            )
+        if (
+            self.sst_snapshot_retryable_max_delay_seconds
+            < self.sst_snapshot_retryable_base_delay_seconds
+        ):
+            raise ValueError(
+                "SST_SNAPSHOT_RETRYABLE_MAX_DELAY_SECONDS must be greater than "
+                "or equal to SST_SNAPSHOT_RETRYABLE_BASE_DELAY_SECONDS"
+            )
+        if (
+            self.chlorophyll_snapshot_max_stale_seconds
+            < self.chlorophyll_snapshot_fresh_seconds
+        ):
+            raise ValueError(
+                "CHLOROPHYLL_SNAPSHOT_MAX_STALE_SECONDS must be greater than or "
+                "equal to CHLOROPHYLL_SNAPSHOT_FRESH_SECONDS"
             )
         return self
 

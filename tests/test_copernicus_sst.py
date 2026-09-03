@@ -9,6 +9,7 @@ from app.clients.copernicus_sst import (
     SSTSourceNotConfiguredError,
     SSTSourceUnavailableError,
     load_copernicus_sst_cells,
+    load_copernicus_sst_region,
 )
 from app.services.cache import MemoryJsonCache
 from app.services.sst import CopernicusSSTService, NoValidSSTError
@@ -420,6 +421,18 @@ def test_missing_optional_package_is_typed(monkeypatch) -> None:
 
     with pytest.raises(SSTSourceNotConfiguredError):
         load_copernicus_sst_cells(
+            dataset_id="dataset",
+            variable="analysed_sst",
+            minimum_latitude=0,
+            maximum_latitude=1,
+            minimum_longitude=0,
+            maximum_longitude=1,
+            start_datetime=ANALYSIS_TIME,
+            end_datetime=QUERY_TIME,
+        )
+
+    with pytest.raises(SSTSourceNotConfiguredError):
+        load_copernicus_sst_region(
             dataset_id="dataset",
             variable="analysed_sst",
             minimum_latitude=0,

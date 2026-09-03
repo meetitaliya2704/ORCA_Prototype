@@ -133,7 +133,7 @@ class CopernicusSSTService:
         )
 
     @measured_sync("normalize.selection")
-    def _normalize(
+    def normalize_cells(
         self,
         *,
         cells: list[SSTProviderCell],
@@ -282,7 +282,7 @@ class CopernicusSSTService:
                     start_datetime=start_datetime,
                     end_datetime=query_time,
                 )
-                response = self._normalize(
+                response = self.normalize_cells(
                     cells=cells,
                     latitude=latitude,
                     longitude=longitude,

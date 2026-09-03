@@ -13,11 +13,13 @@ from app.clients.copernicus_chlorophyll import (
     ChlorophyllFlagMetadata,
     ChlorophyllProviderCell,
     ChlorophyllProviderResult,
+    ChlorophyllRateLimitedError,
     ChlorophyllSourceNotConfiguredError,
     ChlorophyllSourceUnavailableError,
     InvalidChlorophyllResponseError,
     load_copernicus_chlorophyll_cells,
     parse_chlorophyll_flag_metadata,
+    map_chlorophyll_provider_exception,
 )
 from app.main import app
 from app.schemas.marine import ChlorophyllResponse
@@ -32,6 +34,45 @@ from app.services.geospatial import haversine_distance_km
 
 
 NOW = datetime(2026, 8, 31, 20, 50, 56, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_typed_http_auth_rejection_is_non_transient(status_code):
+    class Response:
+        pass
+
+    error = RuntimeError("private")
+    error.response = Response()
+    error.response.status_code = status_code
+    mapped = map_chlorophyll_provider_exception(error)
+    assert isinstance(mapped, ChlorophyllAuthenticationError)
+    assert "private" not in str(mapped)
+
+
+def test_unreachable_authentication_service_is_source_unavailable():
+    CouldNotConnect = type("CouldNotConnectToAuthenticationSystem", (RuntimeError,), {})
+    mapped = map_chlorophyll_provider_exception(CouldNotConnect("secret endpoint"))
+    assert isinstance(mapped, ChlorophyllSourceUnavailableError)
+    assert not isinstance(mapped, ChlorophyllAuthenticationError)
+    assert "secret endpoint" not in str(mapped)
+
+
+def test_ambiguous_auth_message_is_not_falsely_called_rejected_credentials():
+    mapped = map_chlorophyll_provider_exception(RuntimeError("authentication failed somewhere"))
+    assert isinstance(mapped, ChlorophyllSourceUnavailableError)
+    assert not isinstance(mapped, ChlorophyllAuthenticationError)
+
+
+def test_rate_limit_preserves_bounded_retry_hint():
+    class Response:
+        status_code = 429
+
+    error = RuntimeError("private")
+    error.response = Response()
+    error.retry_after_seconds = 45
+    mapped = map_chlorophyll_provider_exception(error)
+    assert isinstance(mapped, ChlorophyllRateLimitedError)
+    assert mapped.retry_after_seconds == 45
 ANALYSIS = datetime(2026, 8, 30, tzinfo=UTC)
 FLAGS = parse_chlorophyll_flag_metadata([1, 2], "LAND INTERPOLATED")
 

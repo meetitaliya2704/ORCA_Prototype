@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 
 from app.api.query_params import LatitudeQuery, LongitudeQuery
 from app.clients.copernicus_chlorophyll import (
@@ -56,13 +57,17 @@ from app.clients.ecmwf_wind import (
 )
 from app.schemas.marine import (
     ChlorophyllResponse,
+    ChlorophyllSnapshotResponse,
     CurrentResponse,
     SeaLevelEventsResponse,
     SeaLevelResponse,
     MarineConditionsResponse,
     ECMWFWindForecastResponse,
     SSTQueryTime,
+    SSTSnapshotResponse,
     SSTResponse,
+    RefreshAcceptedResponse,
+    RefreshJobResponse,
     WaveResponse,
     WindResponse,
 )
@@ -115,8 +120,9 @@ async def get_conditions(
 
 @router.get(
     "/sst",
-    response_model=SSTResponse,
+    response_model=SSTSnapshotResponse | SSTResponse,
     responses={
+        202: {"model": RefreshAcceptedResponse, "description": "Regional SST refresh is running"},
         404: {"description": "No valid SST cell exists within the search radius"},
         502: {"description": "Copernicus returned an invalid SST response"},
         503: {"description": "Copernicus SST is unavailable or not configured"},
@@ -127,7 +133,11 @@ async def get_sst(
     latitude: LatitudeQuery,
     longitude: LongitudeQuery,
     at: Annotated[SSTQueryTime | None, Query()] = None,
-) -> SSTResponse:
+    wait_for_refresh: bool = Query(
+        default=False,
+        description="Diagnostic mode: wait for the shared regional refresh job",
+    ),
+) -> SSTSnapshotResponse | SSTResponse | JSONResponse:
     service = request.app.state.sst_service
     if service is None:
         raise HTTPException(
@@ -138,6 +148,28 @@ async def get_sst(
             },
         )
     try:
+        snapshot_manager = getattr(request.app.state, "sst_snapshot_manager", None)
+        if (
+            snapshot_manager is not None
+            and getattr(snapshot_manager, "point_service", None) is not service
+        ):
+            # The lifespan wires these to the same authoritative provider path.
+            # A test or diagnostic may deliberately replace the point service;
+            # never let the retained snapshot manager bypass that override.
+            snapshot_manager = None
+        if snapshot_manager is not None:
+            result = await snapshot_manager.get_sst(
+                latitude=latitude,
+                longitude=longitude,
+                at=at,
+                wait_for_refresh=wait_for_refresh,
+            )
+            if isinstance(result, RefreshAcceptedResponse):
+                return JSONResponse(
+                    status_code=status.HTTP_202_ACCEPTED,
+                    content=result.model_dump(mode="json"),
+                )
+            return result
         return await service.get_sst(
             latitude=latitude,
             longitude=longitude,
@@ -164,9 +196,7 @@ async def get_sst(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "code": "SST_AUTHENTICATION_FAILED",
-                "message": (
-                    "Copernicus Marine credentials are missing or invalid"
-                ),
+                "message": "Copernicus SST authentication is unavailable",
             },
         ) from exc
     except SSTSourceNotConfiguredError as exc:
@@ -178,19 +208,56 @@ async def get_sst(
             },
         ) from exc
     except SSTSourceUnavailableError as exc:
+        retry_after = getattr(exc, "retry_after_seconds", None)
+        detail = {
+            "code": "SST_SOURCE_UNAVAILABLE",
+            "message": "The SST source is temporarily unavailable",
+        }
+        headers = None
+        if isinstance(retry_after, int) and retry_after > 0:
+            detail["retry_after_seconds"] = retry_after
+            headers = {"Retry-After": str(retry_after)}
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": "SST_SOURCE_UNAVAILABLE",
-                "message": "Copernicus Marine SST source is unavailable",
-            },
+            detail=detail,
+            headers=headers,
+        ) from exc
+
+
+@router.get(
+    "/refresh/jobs/{job_id}",
+    response_model=RefreshJobResponse,
+    responses={404: {"description": "Refresh job was not found"}},
+)
+async def get_refresh_job(request: Request, job_id: str) -> RefreshJobResponse:
+    jobs = getattr(request.app.state, "snapshot_job_manager", None)
+    try:
+        if jobs is not None:
+            job = await jobs.get(job_id)
+            manager = getattr(request.app.state, f"{job.source}_snapshot_manager", None)
+            if manager is not None:
+                return await manager.job_status(job_id)
+        # Compatibility for focused test applications that inject one manager.
+        for name in ("sst_snapshot_manager", "chlorophyll_snapshot_manager"):
+            manager = getattr(request.app.state, name, None)
+            if manager is not None:
+                try:
+                    return await manager.job_status(job_id)
+                except KeyError:
+                    continue
+        raise KeyError(job_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "REFRESH_JOB_NOT_FOUND", "message": "Refresh job was not found"},
         ) from exc
 
 
 @router.get(
     "/chlorophyll",
-    response_model=ChlorophyllResponse,
+    response_model=ChlorophyllSnapshotResponse | ChlorophyllResponse,
     responses={
+        202: {"model": RefreshAcceptedResponse, "description": "Regional chlorophyll refresh is running"},
         404: {"description": "No current valid chlorophyll cell is available"},
         422: {"description": "Coordinates or chlorophyll time are invalid"},
         502: {"description": "Copernicus returned invalid chlorophyll data"},
@@ -202,7 +269,11 @@ async def get_chlorophyll(
     latitude: LatitudeQuery,
     longitude: LongitudeQuery,
     at: Annotated[SSTQueryTime | None, Query()] = None,
-) -> ChlorophyllResponse:
+    wait_for_refresh: bool = Query(
+        default=False,
+        description="Diagnostic mode: wait for the shared regional refresh job",
+    ),
+) -> ChlorophyllSnapshotResponse | ChlorophyllResponse | JSONResponse:
     service = request.app.state.chlorophyll_service
     if service is None:
         raise HTTPException(
@@ -213,6 +284,27 @@ async def get_chlorophyll(
             },
         )
     try:
+        snapshot_manager = getattr(
+            request.app.state, "chlorophyll_snapshot_manager", None
+        )
+        if (
+            snapshot_manager is not None
+            and getattr(snapshot_manager, "point_service", None) is not service
+        ):
+            snapshot_manager = None
+        if snapshot_manager is not None:
+            result = await snapshot_manager.get_chlorophyll(
+                latitude=latitude,
+                longitude=longitude,
+                at=at,
+                wait_for_refresh=wait_for_refresh,
+            )
+            if isinstance(result, RefreshAcceptedResponse):
+                return JSONResponse(
+                    status_code=status.HTTP_202_ACCEPTED,
+                    content=result.model_dump(mode="json"),
+                )
+            return result
         return await service.get_chlorophyll(
             latitude=latitude,
             longitude=longitude,
@@ -265,7 +357,7 @@ async def get_chlorophyll(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "code": "CHLOROPHYLL_AUTHENTICATION_FAILED",
-                "message": "Copernicus Marine credentials are missing or invalid",
+                "message": "Copernicus chlorophyll authentication was rejected",
             },
         ) from exc
     except ChlorophyllSourceNotConfiguredError as exc:
@@ -277,12 +369,19 @@ async def get_chlorophyll(
             },
         ) from exc
     except ChlorophyllSourceUnavailableError as exc:
+        retry_after = getattr(exc, "retry_after_seconds", None)
+        detail = {
+            "code": "CHLOROPHYLL_SOURCE_UNAVAILABLE",
+            "message": "Copernicus Marine chlorophyll source is unavailable",
+        }
+        headers = None
+        if isinstance(retry_after, int) and retry_after > 0:
+            detail["retry_after_seconds"] = retry_after
+            headers = {"Retry-After": str(retry_after)}
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": "CHLOROPHYLL_SOURCE_UNAVAILABLE",
-                "message": "Copernicus Marine chlorophyll source is unavailable",
-            },
+            detail=detail,
+            headers=headers,
         ) from exc
 
 

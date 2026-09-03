@@ -25,7 +25,7 @@ ORCA is decision support, not certified navigation advice.
 ## Current implementation status
 
 - Checkpoints A through D6-1A described in this document are complete, with
-  472 offline tests passing.
+  557 offline tests passing before P1B-1 development.
 - Database dependencies and runtime components have been removed.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
@@ -714,6 +714,104 @@ follow their model cadence, and ECMWF follows completed forecast cycles.
 Uncommon ECMWF steps and arbitrary event windows remain on demand, while tide
 events should derive from cached sea-level series where their ranges overlap.
 The complete P0 offline suite passes with 492 tests.
+
+### Performance P1A boundary
+
+P1A implements an opt-in process-local regional snapshot pilot for Copernicus
+SST only. Deterministic 2-degree tiles include provider padding based on the
+SST water-cell fallback radius, grid allowance, and safety margin. Logical
+tile coverage remains distinct from padded provider coverage. One fully
+materialized, validated regional field supports multiple point samples; remote
+Xarray resources are closed before atomic publication.
+
+The normal SST endpoint is snapshot-first only when
+`MARINE_SNAPSHOTS_ENABLED=true`. Fresh fields return `200` locally. Usable
+stale fields return immediately as `stale_refreshing` while one deduplicated
+job runs. A missing or unusable field returns a non-exception-shaped `202`
+with `MARINE_DATA_REFRESH_IN_PROGRESS`; diagnostic callers may opt into a
+bounded wait. Refresh state is safely pollable by opaque job ID. Failed or
+cancelled work never overwrites the prior success, and heavy refreshes use a
+global process-local semaphore initially limited to two.
+
+Startup prewarming and the lightweight async scheduler never block FastAPI
+startup. Both operate only on configured, deduplicated SST tiles and shut down
+cooperatively. This first store and its locks are intentionally process-local;
+distributed/multi-worker coordination is deferred.
+
+P0 duration fields are cumulative per named span, while wall-clock interval
+union and the critical path are reported separately. Concurrent source spans
+must not be summed as request wall time. PFZ parsing spans describe cumulative
+instrumented parsing work, not process CPU time. Every profile reports each
+cache layer as cold, warm, or not applicable; wrapper time not attributed to a
+child span remains explicit.
+
+Combined conditions remains on its existing direct concurrent sources during
+P1A. Mixing only snapshot SST into that response would not solve its cold
+critical path. P1B may migrate other suitable sources and then switch combined
+conditions coherently. PFZ `SEC001`/`SEC006` live validation failures remain a
+separate parser/source-hardening issue; later PFZ snapshots must preserve the
+last successful data per failed sector.
+
+Performance P1A is implemented for SST only; P1B has not started.
+
+### Performance P1B-1 boundary
+
+P1B-1 extends the process-local regional snapshot system to Copernicus daily
+chlorophyll only. It is separately opt-in; disabled mode preserves D4-1, and
+waves, wind, currents, sea level, PFZ, and combined conditions are not migrated.
+
+The immutable regional payload contains decoded `CHL`, nullable
+`CHL_uncertainty`, integer `flags`, and the validated provider flag mapping.
+Local requests use the existing D4-1 normalization, preserving LAND precedence,
+interpolation provenance, uncertainty degradation, freshness, deterministic
+Haversine selection, radius/tie/antimeridian rules, units, and notice. Invalid
+flag metadata cannot be published.
+
+SST and chlorophyll share one atomic store, job registry, global heavy-provider
+semaphore, scheduler implementation, and safe polling endpoint. Their canonical
+source/dataset/variable/tile/time/scientific-policy/schema identities remain
+isolated. Failed or cancelled refreshes preserve the last success, and failure
+gates prevent repeated provider attempts.
+
+The warm CLI now uses the running server by default and accepts `--source
+chlorophyll`; isolated mode is explicitly ephemeral. Startup warming is
+source-flagged and non-blocking. The in-memory store requires a single worker
+for consistent route-visible snapshots.
+
+P1B-1's bounded live gate returned a missing-tile `202` in 33.89 ms and started
+exactly one regional request after confirming the two open-ocean coordinates
+share a tile. The provider work had not completed at the 90-second limit; it
+was cancelled during controlled process shutdown and was not retried. Live
+publication, local `200` sampling, and Gujarat fallback therefore remain
+pending and are not claimed as verified.
+
+### Performance P1A-1 hardening
+
+One lifespan-created, lazily importing Copernicus SST provider is shared by
+the direct service, regional refresher, startup warmer, scheduler, and local
+warm-up CLI. Background jobs store no credential material or environment
+state. A controlled live comparison showed both direct and regional provider
+calls failed with the same safe authentication-system connectivity failure;
+there was no request/background configuration divergence.
+
+Refresh failures are classified as retryable, non-retryable, or request/data
+results. Retryable source/transport failures use deterministic 30-second
+exponential backoff capped at 900 seconds. Authentication, dependency,
+configuration, and malformed-response failures block automatic retry for 900
+seconds. Gates are process-local and isolated by source, dataset/configuration
+digest, and tile. Configuration changes, cooldown expiry, explicit local CLI
+retry, or success allow a controlled attempt; success clears attempt history.
+
+An SST `202` is emitted only while a job is queued or running. With no usable
+snapshot, a blocked authentication/configuration failure returns its typed
+`503`; a transient cooldown returns `503 SST_SOURCE_UNAVAILABLE` with
+`Retry-After`. With usable stale data, a blocked refresh returns `200 stale`
+without a job ID, while an active refresh returns `200 stale_refreshing`.
+Failed job status exposes only safe retryability/timing metadata.
+
+P1A-1 offline hardening is complete. Successful SST live tile publication and
+multi-coordinate sampling remain pending on restoration of Copernicus
+authentication availability. P1B-1 migrates only chlorophyll snapshots.
 
 ### Checkpoint E — combined conditions and safety
 

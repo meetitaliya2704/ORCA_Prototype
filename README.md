@@ -658,3 +658,114 @@ PERFORMANCE_SERVER_TIMING_ENABLED=false
 PERFORMANCE_LOG_SLOW_REQUEST_MS=1000
 PERFORMANCE_PROFILE_MAX_PROVIDER_CONCURRENCY=2
 ```
+
+## P1A: asynchronous regional SST snapshots
+
+P1A migrates only the real Copernicus SST point endpoint to an opt-in,
+process-local regional snapshot. The default remains disabled, so existing
+direct SST behavior and `/v1/marine/conditions` are unchanged. A 2-degree
+logical tile is fetched once (with padding for the configured water-cell
+fallback) and can then serve multiple coordinates locally.
+
+With `MARINE_SNAPSHOTS_ENABLED=true`, `GET /v1/marine/sst` returns `200` for a
+fresh or usable stale snapshot. A stale response is labelled
+`stale_refreshing` and starts or reuses one background refresh. If no usable
+snapshot exists, the endpoint returns a typed `202` body with code
+`MARINE_DATA_REFRESH_IN_PROGRESS` and an opaque job ID. The diagnostic query
+`wait_for_refresh=true` waits for that shared job without cancelling it on
+timeout. Job state is available at
+`GET /v1/marine/refresh/jobs/{job_id}`.
+
+The store and refresh locks are in-process only; multi-worker coordination is
+deferred. Startup warming is non-blocking and uses unique tiles parsed from
+`MARINE_SNAPSHOT_PREWARM_POINTS_JSON`. The lightweight scheduler checks daily
+SST refresh eligibility without downloading the same analysis on every user
+request. The default CLI calls the running FastAPI server, so it warms the
+same process-local store served by the routes:
+
+```powershell
+python -m app.jobs.warm_snapshots --server-url http://127.0.0.1:8000 `
+  --source sst --latitude 18.025 --longitude 70.525 --wait --status
+```
+
+Snapshot identities include source/product/dataset/variable, tile and tiling
+version, exact provider valid time, fallback radius, exact-cell tolerance,
+lookback/time policy, decoded-Kelvin-to-Celsius policy, configuration digest,
+and schema version. Regional payloads own finite decoded arrays; no remote
+Xarray handle or credentials are retained. Failed and cancelled refreshes
+never replace the last successful snapshot.
+
+P1A deliberately does not migrate waves, either wind source,
+currents, sea level, tide events, PFZ, or combined conditions. P1B should move
+the remaining suitable sources only after source-specific cadence and field
+semantics are preserved. The P0 PFZ validation failures for `SEC001` and
+`SEC006` remain a separate hardening issue.
+
+### P1A-1 refresh failure semantics
+
+Direct and regional SST use the same lifespan-created provider instance and
+validated settings. Refresh jobs contain only safe source/tile identity; they
+never copy credentials, credential paths, environment data, or provider URLs.
+
+`202 MARINE_DATA_REFRESH_IN_PROGRESS` now means a job is actually queued or
+running. If no usable snapshot exists and authentication, an optional
+dependency, or configuration is unavailable, the endpoint returns the mapped
+SST `503` immediately and does not create another job during the 900-second
+non-retryable cooldown. Transient source failures use deterministic bounded
+exponential backoff, initially 30 seconds and capped at 900 seconds, with a
+`Retry-After` response header.
+
+A stale snapshot is labelled `stale_refreshing` only while a job exists. If a
+failure gate blocks refresh, it remains a `200` response labelled `stale`,
+preserves the successful retrieval metadata, has no refresh job ID, and states
+when automatic refresh may resume. Successful refresh clears the gate and its
+attempt count. A deliberate local retry can bypass only that SST tile gate:
+
+```powershell
+python -m app.jobs.warm_snapshots --source sst --latitude 18.025 `
+  --longitude 70.525 --retry-failed --wait --status
+```
+
+The P1A-1 live diagnostic found identical outcomes from the shared provider:
+both direct and regional calls reached `SSTAuthenticationError` because the
+Toolbox authentication system could not be contacted. The fast `202` path is
+verified, but successful live publication and same-tile local sampling remain
+pending until local/provider authentication is available. The process-local,
+single-worker limitation remains unchanged.
+
+## P1B-1: asynchronous regional chlorophyll snapshots
+
+P1B-1 adds a separately opt-in regional path for
+`GET /v1/marine/chlorophyll`. Enable the direct source with
+`CHLOROPHYLL_ENABLED=true`, snapshots with `MARINE_SNAPSHOTS_ENABLED=true`,
+and chlorophyll snapshots with `CHLOROPHYLL_SNAPSHOTS_ENABLED=true`. Disabled
+mode retains the D4-1 direct-provider behavior, and combined conditions remains
+on its existing direct concurrent architecture.
+
+One bounded daily field owns decoded `CHL`, nullable `CHL_uncertainty`, and
+`flags` with the validated provider `flag_masks`/`flag_meanings` mapping.
+Local reads call the existing D4-1 normalizer: LAND is rejected, INTERPOLATED
+and missing/high uncertainty remain degraded evidence, Haversine/radius/tie
+rules are unchanged, and decoded `mg/mÂ³` is never rescaled.
+
+Fresh fields return `200` without provider work. Usable stale fields return
+`stale_refreshing` only while one shared job runs, or `stale` while a failure
+gate blocks retry. Missing fields return `202` only for a queued/running job.
+SST and chlorophyll share the atomic store, job registry, scheduler code, and
+global two-operation heavy semaphore, while namespaced configuration and
+payload identities prevent cross-source reuse.
+
+The default chlorophyll fresh/stale windows are 86,400/172,800 seconds and the
+refresh eligibility check is 21,600 seconds. Startup warming is separately
+flagged and non-blocking. The server-client CLI accepts `--source chlorophyll`;
+explicit `--isolated` mode is ephemeral and cannot warm another process.
+
+Snapshots remain in memory and process-local. Use one application worker until
+a later distributed-store checkpoint. Chlorophyll remains an environmental
+indicator and never confirms fish presence.
+
+The P1B-1 live gate confirmed a 33.89-ms missing-tile `202`, one deduplicated
+regional call, and same-tile mapping for `18.025,70.525` and `18.5,70.8`.
+That provider call was still running at the bounded 90-second validation limit,
+so no live snapshot was published and no second attempt was made. Live local
+`200`, coastal fallback, and same-tile provider reuse remain explicitly pending.

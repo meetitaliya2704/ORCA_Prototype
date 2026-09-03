@@ -490,6 +490,35 @@ class CopernicusChlorophyllService:
             warnings=warnings,
         )
 
+    def normalize_result(
+        self,
+        *,
+        result: ChlorophyllProviderResult,
+        latitude: float,
+        longitude: float,
+        query_time: datetime,
+        retrieved_at: datetime,
+    ) -> ChlorophyllResponse:
+        """Shared direct/snapshot scientific normalization boundary."""
+        query_time = _utc(query_time)
+        return self._normalize(
+            result=result,
+            latitude=latitude,
+            longitude=longitude,
+            start_datetime=query_time - timedelta(hours=self.freshness_hours),
+            query_time=query_time,
+            retrieved_at=_utc(retrieved_at),
+        )
+
+    def query_time(self, at: datetime | None = None) -> datetime:
+        now = _utc(self._now())
+        query_time = _utc(at) if at is not None else now
+        if at is not None and query_time > now + FUTURE_CLOCK_SKEW:
+            raise InvalidChlorophyllTimeError(
+                "Chlorophyll is an analysis product and does not provide forecasts"
+            )
+        return query_time
+
     @measured_async("service.total")
     async def get_chlorophyll(
         self,
@@ -498,12 +527,7 @@ class CopernicusChlorophyllService:
         longitude: float,
         at: datetime | None = None,
     ) -> ChlorophyllResponse:
-        now = _utc(self._now())
-        query_time = _utc(at) if at is not None else now
-        if at is not None and query_time > now + FUTURE_CLOCK_SKEW:
-            raise InvalidChlorophyllTimeError(
-                "Chlorophyll is an analysis product and does not provide forecasts"
-            )
+        query_time = self.query_time(at)
         start_datetime = query_time - timedelta(hours=self.freshness_hours)
         cache_base = self._cache_base(latitude, longitude, query_time)
         fresh_key = f"{cache_base}:fresh"
@@ -533,11 +557,10 @@ class CopernicusChlorophyllService:
                     start_datetime=start_datetime,
                     query_time=query_time,
                 )
-                response = self._normalize(
+                response = self.normalize_result(
                     result=result,
                     latitude=latitude,
                     longitude=longitude,
-                    start_datetime=start_datetime,
                     query_time=query_time,
                     retrieved_at=_utc(self._now()),
                 )

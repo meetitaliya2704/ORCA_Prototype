@@ -19,6 +19,26 @@ def test_database_configuration_is_not_required() -> None:
     assert settings.performance_server_timing_enabled is False
     assert settings.performance_log_slow_request_ms == 1000
     assert settings.performance_profile_max_provider_concurrency == 2
+    assert settings.marine_snapshots_enabled is False
+    assert settings.marine_snapshot_tile_size_degrees == 2
+    assert settings.marine_snapshot_heavy_concurrency == 2
+    assert settings.marine_snapshot_wait_timeout_seconds == 90
+    assert settings.marine_snapshot_startup_warm_enabled is False
+    assert settings.marine_snapshot_max_stale_seconds == 172800
+    assert settings.marine_snapshot_job_retention_seconds == 3600
+    assert settings.sst_snapshot_refresh_check_seconds == 21600
+    assert settings.sst_snapshot_fresh_seconds == 86400
+    assert settings.sst_snapshot_time_lookback_days == 3
+    assert settings.sst_snapshot_retryable_base_delay_seconds == 30
+    assert settings.sst_snapshot_retryable_max_delay_seconds == 900
+    assert settings.sst_snapshot_non_retryable_cooldown_seconds == 900
+    assert settings.chlorophyll_snapshots_enabled is False
+    assert settings.chlorophyll_snapshot_startup_warm_enabled is False
+    assert settings.chlorophyll_snapshot_refresh_check_seconds == 21600
+    assert settings.chlorophyll_snapshot_fresh_seconds == 86400
+    assert settings.chlorophyll_snapshot_max_stale_seconds == 172800
+    assert settings.chlorophyll_snapshot_schema_version == "chlorophyll-snapshot-v1"
+    assert settings.marine_snapshot_prewarm_points_json == []
     assert settings.copernicus_sst_enabled is False
     assert (
         settings.copernicus_sst_dataset_id
@@ -105,6 +125,49 @@ def test_enabled_redis_requires_a_url() -> None:
 def test_performance_diagnostics_configuration_is_bounded(overrides) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"marine_snapshot_tile_size_degrees": 0},
+    {"marine_snapshot_heavy_concurrency": 0},
+    {"marine_snapshot_wait_timeout_seconds": 0},
+    {"marine_snapshot_scheduler_check_seconds": 0},
+    {"sst_snapshot_time_lookback_days": 0},
+    {"sst_snapshot_retryable_base_delay_seconds": 0},
+    {"sst_snapshot_non_retryable_cooldown_seconds": 0},
+])
+def test_snapshot_configuration_is_bounded(overrides) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
+
+
+def test_snapshot_stale_window_must_cover_fresh_window() -> None:
+    with pytest.raises(ValidationError, match="MARINE_SNAPSHOT_MAX_STALE_SECONDS"):
+        Settings(
+            _env_file=None,
+            sst_snapshot_fresh_seconds=100,
+            marine_snapshot_max_stale_seconds=99,
+        )
+
+    with pytest.raises(ValidationError, match="SST_SNAPSHOT_RETRYABLE_MAX_DELAY_SECONDS"):
+        Settings(
+            _env_file=None,
+            sst_snapshot_retryable_base_delay_seconds=31,
+            sst_snapshot_retryable_max_delay_seconds=30,
+        )
+
+
+def test_snapshot_prewarm_points_are_strictly_validated() -> None:
+    settings = Settings(
+        _env_file=None,
+        marine_snapshot_prewarm_points_json=[{"latitude": 18.025, "longitude": 70.525}],
+    )
+    assert settings.marine_snapshot_prewarm_points_json[0].latitude == 18.025
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            marine_snapshot_prewarm_points_json=[{"latitude": 91, "longitude": 0}],
+        )
 
 
 def test_tide_cache_ttls_must_be_ordered() -> None:

@@ -60,6 +60,11 @@ from app.services.wind_forecast import (
     ECMWFWindMarineSource,
     TimeSelectingWindMarineSource,
 )
+from app.snapshots.jobs import RefreshJobManager
+from app.snapshots.manager import SSTSnapshotManager
+from app.snapshots.chlorophyll import ChlorophyllSnapshotManager
+from app.snapshots.scheduler import SnapshotScheduler
+from app.snapshots.store import InMemorySnapshotStore
 
 
 settings = get_settings()
@@ -70,6 +75,14 @@ def _measured(
     semaphore: asyncio.Semaphore | None = None,
 ):
     return InstrumentedAsyncProxy(target, phases, semaphore) if enabled else target
+
+
+def _build_sst_provider(measure):
+    """One lazy provider construction path shared by direct and snapshot SST."""
+    return measure(
+        CopernicusMarineSSTProvider(),
+        {"fetch_cells": "provider.load", "fetch_region": "provider.load"},
+    )
 
 
 @asynccontextmanager
@@ -115,11 +128,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     cache = InstrumentedJsonCache(base_cache) if instrumentation_enabled else base_cache
 
     if settings.copernicus_sst_enabled:
+        sst_provider = _build_sst_provider(measure)
         sst_service = CopernicusSSTService(
-            provider=measure(
-                CopernicusMarineSSTProvider(),
-                {"fetch_cells": "provider.load"},
-            ),
+            provider=sst_provider,
             cache=cache,
             dataset_id=settings.copernicus_sst_dataset_id,
             variable=settings.copernicus_sst_variable,
@@ -133,6 +144,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         sst_source = DemoMarineSource("sst", "SST", 29.4, "degC")
         app.state.sst_service = None
+
+    snapshot_schedulers = []
+    refresh_jobs = None
+    app.state.sst_snapshot_manager = None
+    app.state.chlorophyll_snapshot_manager = None
 
     if settings.copernicus_waves_enabled:
         wave_service = CopernicusWaveService(
@@ -189,11 +205,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.wind_service = None
 
     if settings.chlorophyll_enabled:
+        chlorophyll_provider = measure(
+            CopernicusMarineChlorophyllProvider(),
+            {"fetch_cells": "provider.load", "fetch_region": "provider.load"},
+        )
         chlorophyll_service = CopernicusChlorophyllService(
-            provider=measure(
-                CopernicusMarineChlorophyllProvider(),
-                {"fetch_cells": "provider.load"},
-            ),
+            provider=chlorophyll_provider,
             cache=cache,
             dataset_id=settings.chlorophyll_dataset_id,
             dataset_version=settings.chlorophyll_dataset_version,
@@ -220,6 +237,76 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "mg/m³",
         )
         app.state.chlorophyll_service = None
+
+    snapshot_store = None
+    snapshots_requested = settings.marine_snapshots_enabled and (
+        app.state.sst_service is not None
+        or (
+            settings.chlorophyll_snapshots_enabled
+            and app.state.chlorophyll_service is not None
+        )
+    )
+    if snapshots_requested:
+        snapshot_store = InMemorySnapshotStore()
+        refresh_jobs = RefreshJobManager(
+            store=snapshot_store,
+            heavy_concurrency=settings.marine_snapshot_heavy_concurrency,
+            history_retention_seconds=settings.marine_snapshot_job_retention_seconds,
+            retryable_base_delay_seconds=settings.sst_snapshot_retryable_base_delay_seconds,
+            retryable_max_delay_seconds=settings.sst_snapshot_retryable_max_delay_seconds,
+            non_retryable_cooldown_seconds=settings.sst_snapshot_non_retryable_cooldown_seconds,
+        )
+    if refresh_jobs is not None and app.state.sst_service is not None:
+        sst_snapshot_manager = SSTSnapshotManager(
+            provider=sst_provider,
+            point_service=sst_service,
+            store=snapshot_store,
+            jobs=refresh_jobs,
+            tile_size_degrees=settings.marine_snapshot_tile_size_degrees,
+            wait_timeout_seconds=settings.marine_snapshot_wait_timeout_seconds,
+            fresh_seconds=settings.sst_snapshot_fresh_seconds,
+            max_stale_seconds=settings.marine_snapshot_max_stale_seconds,
+            refresh_check_seconds=settings.sst_snapshot_refresh_check_seconds,
+            lookback_days=settings.sst_snapshot_time_lookback_days,
+        )
+        app.state.sst_snapshot_manager = sst_snapshot_manager
+        scheduler = SnapshotScheduler(
+            manager=sst_snapshot_manager,
+            points=((point.latitude, point.longitude) for point in settings.marine_snapshot_prewarm_points_json),
+            check_seconds=settings.marine_snapshot_scheduler_check_seconds,
+        )
+        scheduler.start(warm_immediately=settings.marine_snapshot_startup_warm_enabled)
+        snapshot_schedulers.append(scheduler)
+    if (
+        refresh_jobs is not None
+        and settings.chlorophyll_snapshots_enabled
+        and app.state.chlorophyll_service is not None
+    ):
+        chlorophyll_snapshot_manager = ChlorophyllSnapshotManager(
+            provider=chlorophyll_provider,
+            point_service=chlorophyll_service,
+            store=snapshot_store,
+            jobs=refresh_jobs,
+            tile_size_degrees=settings.marine_snapshot_tile_size_degrees,
+            wait_timeout_seconds=settings.marine_snapshot_wait_timeout_seconds,
+            fresh_seconds=settings.chlorophyll_snapshot_fresh_seconds,
+            max_stale_seconds=settings.chlorophyll_snapshot_max_stale_seconds,
+            refresh_check_seconds=settings.chlorophyll_snapshot_refresh_check_seconds,
+            schema_version=settings.chlorophyll_snapshot_schema_version,
+        )
+        app.state.chlorophyll_snapshot_manager = chlorophyll_snapshot_manager
+        scheduler = SnapshotScheduler(
+            manager=chlorophyll_snapshot_manager,
+            points=((point.latitude, point.longitude) for point in settings.marine_snapshot_prewarm_points_json),
+            check_seconds=settings.marine_snapshot_scheduler_check_seconds,
+        )
+        scheduler.start(
+            warm_immediately=settings.chlorophyll_snapshot_startup_warm_enabled
+        )
+        snapshot_schedulers.append(scheduler)
+    app.state.snapshot_scheduler = snapshot_schedulers[0] if snapshot_schedulers else None
+    app.state.snapshot_schedulers = tuple(snapshot_schedulers)
+    app.state.snapshot_job_manager = refresh_jobs
 
     if settings.copernicus_currents_enabled:
         current_service = CopernicusCurrentService(
@@ -381,10 +468,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         snapshot_service=pfz_snapshot_service
     )
 
-    yield
-
-    await cache.close()
-    await client.aclose()
+    try:
+        yield
+    finally:
+        for snapshot_scheduler in snapshot_schedulers:
+            await snapshot_scheduler.close()
+        if refresh_jobs is not None:
+            await refresh_jobs.close()
+        await cache.close()
+        await client.aclose()
 
 
 app = FastAPI(
