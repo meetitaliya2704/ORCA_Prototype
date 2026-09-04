@@ -840,10 +840,41 @@ quality, attribution, warnings, wind direction-from, and current
 direction-toward remain in their existing typed models. E1 adds no safety or
 fishing verdict, route logic, provider, persistence, or LLM behavior.
 
-### Checkpoint E2 — deterministic safety (not started)
+### Checkpoint E2 — deterministic operational-condition assessment
 
-- Add deterministic safety gates and reason codes only under a later explicit
-  checkpoint.
+E2 adds `POST /v1/decision-support/assessment`. The service calls E1 exactly
+once, then passes its bundle to a pure deterministic rule engine. It never calls
+providers independently and performs no internal HTTP request. At least one
+finite positive request-supplied limit is required; ORCA supplies no default
+vessel profile or safety threshold.
+
+Only significant wave height, the E1-selected recent/forecast wind speed, and
+authoritative total surface-current speed are operational rule inputs. PFZ,
+SST, chlorophyll, and point sea level remain typed context only. In particular,
+PFZ validity is not evidence of safe conditions, chlorophyll does not establish
+fish presence, and modelled sea level is not chart-datum water depth.
+
+Individual rules use full-precision `value > limit`: greater is exceeded and
+equality is within limit. Near-limit classification is disabled unless the
+request explicitly supplies a percentage; its range is inclusive at
+`limit * (1 - percentage/100)` and excludes the limit itself. Policy ID,
+version, request limit source, near-limit configuration, and evaluation time
+are returned. Changing comparisons, units, or near-limit semantics requires a
+policy-version change.
+
+Aggregate precedence is `LIMIT_EXCEEDED`, then `INSUFFICIENT_EVIDENCE`, then
+`CAUTION`, then `WITHIN_CONFIGURED_LIMITS`; no weighted average can cancel an
+exceeded condition. Evidence confidence is separate: normal, degraded, or
+insufficient according only to required evidence. Existing provenance,
+quality, warnings, uncertainty, cache/snapshot status, attribution, wind
+direction-from, and current direction-toward remain embedded in E1's typed
+models.
+
+Official meteorological and maritime warnings are not integrated. Every
+response exposes `official_warning_coverage=not_integrated`, a stable reason,
+and an authority-verification notice. `WITHIN_CONFIGURED_LIMITS` is not a
+navigation approval or universal safety claim. E2 has no LLM, route logic,
+weighted score, persistence, geofence, or new data source.
 
 ### Checkpoint F — user interface and agents
 

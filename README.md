@@ -796,3 +796,39 @@ Invalid requests return `422`; unexpected aggregation failures remain `500`.
 E1 performs aggregation only. It calculates no safety score, fishing
 suitability, route recommendation, or LLM explanation. Intentionally configured
 demo sources are not substituted for unavailable enabled real providers.
+
+## E2: deterministic operational-condition assessment
+
+`POST /v1/decision-support/assessment` evaluates request-supplied operational
+limits against one E1 evidence bundle. Callers must supply at least one finite,
+positive limit for significant wave height, wind speed, or total surface-current
+speed. ORCA does not choose a vessel profile or invent default limits. The
+response records policy `request_supplied_limits`, version `1`, and
+`limit_source=request`.
+
+Each configured rule compares the full-precision source value using
+`value > limit`; equality remains within the configured limit. An optional
+request-supplied `near_limit_percentage` enables the documented band from
+`limit * (1 - percentage/100)` inclusive up to, but excluding, the limit. When
+it is omitted, no near-limit outcome is produced. A policy change to these
+comparisons, units, or band semantics requires a policy-version change.
+
+Overall outcomes are applied without weighting: any exceeded rule produces
+`LIMIT_EXCEEDED`; otherwise missing required evidence produces
+`INSUFFICIENT_EVIDENCE`; otherwise a near-limit rule produces `CAUTION`; all
+other configured rules produce `WITHIN_CONFIGURED_LIMITS`. The separate
+evidence confidence is `NORMAL`, `DEGRADED`, or `INSUFFICIENT` and never hides
+stale, pending, coastal-fallback, uncertainty, or decomposition limitations.
+
+PFZ, SST, chlorophyll, and sea level are returned as context only. They cannot
+change the operational outcome: PFZ is not proof of safe conditions,
+chlorophyll does not confirm fish presence, and modelled sea level is not
+chart-datum water depth. Wind direction remains meteorological direction-from;
+current direction remains oceanographic direction-toward.
+
+Official IMD and maritime-authority warning feeds are not integrated. Every
+response says so explicitly and instructs callers to verify current official
+advisories. `WITHIN_CONFIGURED_LIMITS` is therefore only a comparison with the
+supplied limits—not a navigation approval, universal safety finding, or claim
+that no warnings exist. E2 uses deterministic Python rules with no LLM,
+weighted risk score, route recommendation, or provider call beyond E1.

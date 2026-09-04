@@ -40,6 +40,7 @@ from app.services.chlorophyll import (
     CopernicusChlorophyllMarineSource,
     CopernicusChlorophyllService,
 )
+from app.services.assessment import MarineAssessmentService
 from app.services.currents import (
     CopernicusCurrentMarineSource,
     CopernicusCurrentService,
@@ -483,6 +484,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             max_concurrent_sources=settings.evidence_max_concurrent_sources,
         )
         if settings.evidence_aggregation_enabled
+        else None
+    )
+    app.state.assessment_service = (
+        MarineAssessmentService(evidence_service=app.state.evidence_service)
+        if app.state.evidence_service is not None
         else None
     )
 
