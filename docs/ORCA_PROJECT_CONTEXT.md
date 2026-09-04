@@ -898,3 +898,43 @@ The next milestone is complete when:
 
 Checkpoint D5-1 completes the deterministic total surface-current adapter.
 Any next source or safety checkpoint requires separate approval.
+
+### Checkpoint E3 — nearest-PFZ decision-support journey
+
+E3 adds `POST /v1/decision-support/pfz-journey`. A request contains a decimal
+origin, optional timezone-aware request time, and at least one request-supplied
+finite positive operational limit. One UTC clock value is captured for the
+workflow when `at` is omitted. No implicit vessel policy or safety threshold is
+selected.
+
+The journey service calls existing Python services directly. Origin E1 evidence
+collection overlaps the existing nearest-valid-PFZ lookup. After a valid PFZ is
+resolved, a distinct E1 bundle is collected at its official coordinate. The
+existing E2 rule engine evaluates both bundles independently through its
+pre-collected-evidence interface, avoiding a second provider pass. Origin and
+destination values are neither merged nor averaged. SST and chlorophyll retain
+their snapshot-aware paths, while other sources retain their existing caches.
+
+The deterministic journey-status precedence is: `PFZ_REFRESH_PENDING`,
+`PFZ_SOURCE_UNAVAILABLE`, `NO_VALID_PFZ`, `POLICY_NOT_CONFIGURED`,
+`PFZ_AVAILABLE_LIMIT_EXCEEDED`, `PFZ_AVAILABLE_INSUFFICIENT_EVIDENCE`,
+`PFZ_AVAILABLE_CAUTION`, then
+`PFZ_AVAILABLE_WITHIN_CONFIGURED_LIMITS`. A favorable result at one location
+cannot cancel an exceeded or unknown required rule at the other. PFZ validity,
+PFZ availability, chlorophyll, SST, and sea level do not change E2 operational
+rules.
+
+The optional typed GeoJSON feature collection contains an origin point, PFZ
+destination point, and a straight reference line in `[longitude, latitude]`
+order. The line is explicitly `navigable_route=false`,
+`route_evaluated=false`, and `geofences_evaluated=false`; it is not a proposed
+or evaluated route. Distance and bearing remain the existing deterministic
+origin-to-official-PFZ calculations, never marine-grid sample coordinates.
+
+Completed typed outcomes—including no valid PFZ, limit exceedance, and partial
+marine evidence—use HTTP 200. HTTP 202 is reserved for a genuine asynchronous
+PFZ refresh with no usable snapshot. The current PFZ cache does not expose such
+a refresh state, so E3 does not fabricate one. Official meteorological and
+maritime warnings, route hazards, and geofences remain unintegrated. E3 makes no
+navigation approval, fishing guarantee, or route recommendation and uses no
+LLM.

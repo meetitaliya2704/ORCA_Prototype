@@ -17,7 +17,7 @@ from app.schemas.assessment import (
     MarineAssessmentResponse,
     NearLimitPolicy,
 )
-from app.schemas.evidence import EvidenceRequest
+from app.schemas.evidence import EvidenceRequest, MarineEvidenceResponse
 
 
 CONTEXT_NOTICE = (
@@ -53,6 +53,26 @@ class MarineAssessmentService:
             include_sea_level=True,
         ))
         evaluated_at = self._utc(self._now())
+        return self.assess_evidence(
+            request=request,
+            evidence=evidence,
+            request_at=request_at,
+            evaluated_at=evaluated_at,
+        )
+
+    def assess_evidence(
+        self,
+        *,
+        request: AssessmentRequest,
+        evidence: MarineEvidenceResponse,
+        request_at: datetime,
+        evaluated_at: datetime,
+    ) -> MarineAssessmentResponse:
+        """Evaluate one pre-collected E1 bundle without another provider call."""
+
+        request_at = self._utc(request_at)
+        evaluated_at = self._utc(evaluated_at)
+        limits = request.operational_limits
         evaluation = evaluate_operational_limits(
             evidence,
             limits,

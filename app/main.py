@@ -53,6 +53,7 @@ from app.services.pfz import (
     PFZPreviewService,
     PFZSnapshotService,
 )
+from app.services.pfz_journey import PFZJourneyService
 from app.services.sst import CopernicusSSTMarineSource, CopernicusSSTService
 from app.services.waves import CopernicusWaveMarineSource, CopernicusWaveService
 from app.services.wind import CopernicusWindMarineSource, CopernicusWindService
@@ -489,6 +490,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.assessment_service = (
         MarineAssessmentService(evidence_service=app.state.evidence_service)
         if app.state.evidence_service is not None
+        else None
+    )
+    app.state.pfz_journey_service = (
+        PFZJourneyService(
+            pfz_service=app.state.pfz_nearest_service,
+            evidence_service=app.state.evidence_service,
+            assessment_service=app.state.assessment_service,
+        )
+        if app.state.evidence_service is not None
+        and app.state.assessment_service is not None
         else None
     )
 

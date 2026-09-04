@@ -1,6 +1,14 @@
 from fastapi import APIRouter
 
-from app.api.routes import assessment, evidence, health, marine, pfz, websocket
+from app.api.routes import (
+    assessment,
+    evidence,
+    health,
+    marine,
+    pfz,
+    pfz_journey,
+    websocket,
+)
 
 
 api_router = APIRouter()
@@ -9,4 +17,5 @@ api_router.include_router(assessment.router)
 api_router.include_router(evidence.router)
 api_router.include_router(marine.router)
 api_router.include_router(pfz.router)
+api_router.include_router(pfz_journey.router)
 api_router.include_router(websocket.router)

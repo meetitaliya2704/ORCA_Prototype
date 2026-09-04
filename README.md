@@ -832,3 +832,40 @@ advisories. `WITHIN_CONFIGURED_LIMITS` is therefore only a comparison with the
 supplied limits—not a navigation approval, universal safety finding, or claim
 that no warnings exist. E2 uses deterministic Python rules with no LLM,
 weighted risk score, route recommendation, or provider call beyond E1.
+
+## E3: nearest-PFZ decision-support journey
+
+`POST /v1/decision-support/pfz-journey` provides one deterministic workflow for
+a user origin and a currently valid INCOIS PFZ. The request supplies a decimal
+origin, an optional timezone-aware `at`, and at least one finite positive
+operational limit. ORCA supplies no default vessel profile or threshold.
+
+The service starts origin E1 evidence collection and nearest-valid-PFZ lookup
+concurrently. When a PFZ is found, it collects a separate E1 bundle at the
+official PFZ coordinate. Each bundle is evaluated independently by the existing
+E2 rule engine with the same request time, limits, policy version, near-limit
+policy, and warning-coverage limitation. Values from the two locations are
+never averaged, and E2 evaluates already-collected evidence without calling a
+provider again.
+
+Journey status uses strict precedence: PFZ refresh pending, PFZ source
+unavailable, no valid PFZ, policy not configured, either location exceeding a
+limit, either location lacking critical evidence, either location in a
+near-limit band, then both checked locations within configured limits. PFZ
+validity and fishing potential never improve the operational assessment;
+chlorophyll remains an environmental indicator and does not confirm fish
+presence.
+
+Optional GeoJSON contains the origin point, official PFZ destination point, and
+a straight geographic reference line. Coordinates use GeoJSON `[longitude,
+latitude]` order. The line is explicitly marked non-navigable, route not
+evaluated, and geofences not evaluated. It is not a route recommendation.
+
+Expected PFZ and partial marine-source outcomes remain typed. HTTP `200` is
+used for completed journey results including no-valid-PFZ and incomplete
+evidence; HTTP `202` is reserved for a genuine PFZ refresh with no usable PFZ
+snapshot. The current PFZ cache service has no asynchronous refresh state, so
+that status is future-compatible rather than fabricated. Official warning,
+route-segment, and geofence coverage remain absent. E3 uses deterministic
+Python only: no LLM, route optimization, fishing guarantee, or navigation
+approval is involved.
