@@ -769,3 +769,30 @@ regional call, and same-tile mapping for `18.025,70.525` and `18.5,70.8`.
 That provider call was still running at the bounded 90-second validation limit,
 so no live snapshot was published and no second attempt was made. Live local
 `200`, coastal fallback, and same-tile provider reuse remain explicitly pending.
+
+## E1: unified marine evidence aggregation
+
+`POST /v1/decision-support/evidence` collects requested existing evidence into
+one typed bundle. It calls the PFZ, SST, chlorophyll, wave, wind, current, and
+point sea-level services directly and concurrently; it does not make HTTP calls
+back into ORCA and does not run sea-level event extraction. SST and chlorophyll
+retain their snapshot-aware behavior, while the other sources retain their
+existing cache behavior.
+
+The request accepts decimal `latitude`/`longitude`, one optional timezone-aware
+`at`, and per-source inclusion flags. When `at` is omitted, ORCA captures UTC
+once and passes the same instant to every source. Present and past wind requests
+use the Copernicus recent-wind analysis. Strictly future requests use ECMWF
+forecast wind, with no fallback to an older recent-wind value.
+
+Each source is labelled `available`, `degraded`, `pending`, `unavailable`, or
+`not_requested`. Existing scientific provenance, quality, uncertainty, flags,
+direction conventions, attribution, warnings, and notices remain inside the
+typed source response. A degraded result remains usable. Source failures and
+snapshot refreshes are normalized into safe typed entries, so complete,
+partial, and wholly unavailable evidence bundles normally return HTTP `200`.
+Invalid requests return `422`; unexpected aggregation failures remain `500`.
+
+E1 performs aggregation only. It calculates no safety score, fishing
+suitability, route recommendation, or LLM explanation. Intentionally configured
+demo sources are not substituted for unavailable enabled real providers.

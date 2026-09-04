@@ -813,11 +813,37 @@ P1A-1 offline hardening is complete. Successful SST live tile publication and
 multi-coordinate sampling remain pending on restoration of Copernicus
 authentication availability. P1B-1 migrates only chlorophyll snapshots.
 
-### Checkpoint E — combined conditions and safety
+### Checkpoint E1 — unified marine evidence aggregation
 
-- Add remaining priority sources.
-- Run independent adapters concurrently.
-- Add deterministic safety gates and reason codes.
+E1 adds `POST /v1/decision-support/evidence`. The service invokes existing
+service interfaces—never internal HTTP—to aggregate nearest valid PFZ, SST,
+chlorophyll, waves, one deterministic wind source, currents, and point sea
+level. Sea-level event extraction is excluded because it is a separate series
+operation. Requested independent sources execute concurrently under a bounded
+semaphore, and one source failure cannot cancel or erase another result.
+
+The request captures one timezone-aware UTC instant when `at` is omitted and
+passes it consistently to all sources. Present/past wind selects Copernicus
+recent-wind analysis; a strictly future instant selects ECMWF forecast wind.
+There is no fallback from a failed future forecast to old recent-wind data.
+
+The typed evidence states are `available`, `degraded`, `pending`, `unavailable`,
+and `not_requested`. Existing degraded quality remains usable. Top-level status
+is `complete` when all requested evidence is usable, `partial` when usable and
+pending/unavailable evidence coexist, and `unavailable` when no requested
+source produced usable evidence. Source-level failures and snapshot refreshes
+are safe data in an HTTP 200 bundle; request validation uses 422.
+
+Provenance is not flattened: model/observation classification, selected and
+requested coordinates/times, uncertainty, chlorophyll flags, sampling and cache
+quality, attribution, warnings, wind direction-from, and current
+direction-toward remain in their existing typed models. E1 adds no safety or
+fishing verdict, route logic, provider, persistence, or LLM behavior.
+
+### Checkpoint E2 — deterministic safety (not started)
+
+- Add deterministic safety gates and reason codes only under a later explicit
+  checkpoint.
 
 ### Checkpoint F — user interface and agents
 

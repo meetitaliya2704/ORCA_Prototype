@@ -29,6 +29,9 @@ class Settings(BaseSettings):
         default=2, ge=1, le=8
     )
 
+    evidence_aggregation_enabled: bool = True
+    evidence_max_concurrent_sources: int = Field(default=7, ge=1, le=7)
+
     marine_snapshots_enabled: bool = False
     marine_snapshot_tile_size_degrees: float = Field(default=2.0, gt=0, le=30)
     marine_snapshot_heavy_concurrency: int = Field(default=2, ge=1, le=8)

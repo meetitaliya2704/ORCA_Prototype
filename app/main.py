@@ -44,6 +44,7 @@ from app.services.currents import (
     CopernicusCurrentMarineSource,
     CopernicusCurrentService,
 )
+from app.services.evidence import MarineEvidenceService
 from app.services.tides import CopernicusTideMarineSource, CopernicusTideService
 from app.services.marine import MarineConditionsService
 from app.services.pfz import (
@@ -466,6 +467,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.pfz_snapshot_service = pfz_snapshot_service
     app.state.pfz_nearest_service = PFZNearestService(
         snapshot_service=pfz_snapshot_service
+    )
+    app.state.evidence_service = (
+        MarineEvidenceService(
+            pfz_service=app.state.pfz_nearest_service,
+            sst_service=app.state.sst_service,
+            sst_snapshot_manager=app.state.sst_snapshot_manager,
+            chlorophyll_service=app.state.chlorophyll_service,
+            chlorophyll_snapshot_manager=app.state.chlorophyll_snapshot_manager,
+            wave_service=app.state.wave_service,
+            recent_wind_service=app.state.wind_service,
+            forecast_wind_service=app.state.ecmwf_wind_service,
+            current_service=app.state.current_service,
+            sea_level_service=app.state.tide_service,
+            max_concurrent_sources=settings.evidence_max_concurrent_sources,
+        )
+        if settings.evidence_aggregation_enabled
+        else None
     )
 
     try:
