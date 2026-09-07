@@ -6,6 +6,30 @@ from app.services import cache as cache_module
 from app.services.cache import RedisConfigurationError, RedisJsonCache
 
 
+def test_cors_origins_are_explicit_normalized_and_deduplicated():
+    settings = Settings(
+        _env_file=None,
+        cors_allowed_origins=[
+            "http://localhost:3000/",
+            "http://localhost:3000",
+            "https://orca.example.org",
+        ],
+    )
+    assert settings.cors_allowed_origins == [
+        "http://localhost:3000",
+        "https://orca.example.org",
+    ]
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["*", "file:///tmp/orca", "https://orca.example.org/path", "https://user:secret@orca.example.org"],
+)
+def test_unsafe_cors_origins_are_rejected(origin):
+    with pytest.raises(ValueError, match="CORS_ALLOWED_ORIGINS"):
+        Settings(_env_file=None, cors_allowed_origins=[origin])
+
+
 def test_database_configuration_is_not_required() -> None:
     settings = Settings(_env_file=None)
 

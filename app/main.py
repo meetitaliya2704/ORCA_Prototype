@@ -4,6 +4,7 @@ import asyncio
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.clients.demo import DemoMarineSource
@@ -524,5 +525,12 @@ app.state.performance_server_timing_enabled = settings.performance_server_timing
 app.state.performance_log_slow_request_ms = settings.performance_log_slow_request_ms
 app.state.performance_recorder = PerformanceRecorder()
 app.state.performance_isolated_cache = False
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type"],
+)
 app.add_middleware(PerformanceMiddleware)
 app.include_router(api_router, prefix=settings.api_prefix)

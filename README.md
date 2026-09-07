@@ -869,3 +869,24 @@ that status is future-compatible rather than fabricated. Official warning,
 route-segment, and geofence coverage remain absent. E3 uses deterministic
 Python only: no LLM, route optimization, fishing guarantee, or navigation
 approval is involved.
+
+## F0: Next.js and MapLibre prototype
+
+The real frontend foundation lives in [`frontend/`](frontend/README.md). It is
+a typed Next.js App Router client for
+`POST /v1/decision-support/pfz-journey`, with Zod response validation, bounded
+refresh polling, TanStack Query health reporting, and a client-only MapLibre
+map. The interface preserves backend journey-status terminology and the
+distinction between wind direction-from and current direction-toward.
+
+The responsive scientific dashboard uses user-supplied operational limits and
+contains explicit empty, loading, pending, partial/degraded, no-PFZ,
+limit-exceeded, insufficient-evidence, provider-offline, validation, and
+map-failure states. Its line is labelled “Reference line — route not
+evaluated.” Demonstration data is opt-in and visibly non-live.
+
+FastAPI accepts only the explicit origins in `CORS_ALLOWED_ORIGINS`; a
+wildcard, credential-bearing URL, or URL with a path/query is rejected.
+Frontend environment and command details are in the frontend README. F0 adds
+no LLM, authentication, database, route generation, or direct browser access
+to external marine providers.

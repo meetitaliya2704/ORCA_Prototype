@@ -938,3 +938,76 @@ a refresh state, so E3 does not fabricate one. Official meteorological and
 maritime warnings, route hazards, and geofences remain unintegrated. E3 makes no
 navigation approval, fishing guarantee, or route recommendation and uses no
 LLM.
+
+### Checkpoint F0 — Next.js + MapLibre prototype foundation
+
+F0 adds a separate `frontend/` Next.js App Router application using React,
+TypeScript, Tailwind CSS, local shadcn/ui-style components, MapLibre GL JS,
+TanStack Query, Zod, and Lucide. It consumes the completed E3 journey endpoint
+through a typed FastAPI-only client. Runtime schemas reject malformed external
+responses, requests are abortable and time bounded, and genuine HTTP 202 PFZ
+refreshes use bounded polling with `Retry-After` support.
+
+The F0 page began as a restrained marine dashboard containing query limits,
+map, typed journey result, separate origin/PFZ evidence, and source/limitation
+details. F1's mandatory assistant-first correction supersedes F0's original
+three-column/map-primary placement: the map is now optional and lazy-loaded
+after conversation, answer, and evidence.
+Status uses text/icons as well as colour, keyboard focus is visible, controls
+are touch-sized, reduced motion is respected, and long IDs/warnings wrap.
+
+MapLibre is client-only and uses `NEXT_PUBLIC_MAP_STYLE_URL`. It renders E3's
+origin, official PFZ destination, and dashed straight reference line in
+GeoJSON longitude/latitude order. The line remains explicitly non-navigable
+and “route not evaluated”; a map-style failure does not remove evidence.
+
+`NEXT_PUBLIC_ORCA_DEMO_MODE` only exposes an explicit action to load a saved,
+sanitized E3 response. It remains labelled Demonstration Snapshot with its
+original timestamp and is never an automatic live-failure fallback. FastAPI
+CORS is restricted to validated explicit `CORS_ALLOWED_ORIGINS`, with
+credentials disabled for F0.
+
+UI UX Pro Max guidance was generated and reviewed under
+`frontend/design-system/orca/MASTER.md`; marketing/landing-page advice,
+glassmorphism, gradients, excess motion, and other unsuitable recommendations
+were overridden. The skill is a development tool, not a frontend dependency,
+and no premium asset was copied.
+
+F0 does not add authentication, persistence, LLMs, candidate routing, safety
+certification, or new providers. Official meteorological/maritime warnings and
+route hazards remain incomplete, and clients must verify authority advisories.
+
+### Checkpoint F1 — conversational prototype and judge-demo experience
+
+F1 builds on F0 without changing E1–E4 scientific behavior. Its corrected
+priority is assistant-first: desktop uses a roughly 52/48 Ask ORCA and
+answer/evidence split. Structured E3 inputs remain under Advanced query
+parameters. Mobile reads conversation, deterministic answer, evidence and
+warnings before the optional map and advanced inputs.
+
+MapLibre is a supporting visualization, not a permanent dashboard column. It
+is code-split and mounted only after a spatial result exposes `View on map`.
+The closed view still reports origin/PFZ coordinates, distance, bearing, and
+direction. The accessible full-screen/mobile or side-panel/desktop dialog
+preserves conversation and evidence state when closed. Explanation, source,
+missing-data, and planned-capability questions never open it automatically.
+
+`NEXT_PUBLIC_ORCA_ASSISTANT_MODE` is restricted to `disabled|demo`. Disabled
+mode offers deterministic tools without generated answers. Demo mode replays a
+runtime-validated, sanitized Gujarat conversation derived from the saved E3
+fixture and visibly labels its original data time. Optional presentation mode
+improves projector readability but never auto-loads demonstration data or hides
+limitations. F1 has no assistant API, LangGraph, LLM request, or browser secret.
+
+Messages form a Zod discriminated union for user, saved assistant demo,
+deterministic result, clarification, tool activity, warning, error, and system
+notice. `AssistantTransport` has disabled and demo implementations only. Live
+E3 responses become explicitly labelled deterministic result messages;
+evidence chips focus matching structured cards, and selecting a prior result
+restores its GeoJSON. Demo specialist steps are labelled demonstration data;
+deterministic traces show only work established by the backend response.
+
+The line remains “Reference line — route not evaluated.” PFZ data does not
+guarantee fish presence, `WITHIN_CONFIGURED_LIMITS` is never renamed safe, and
+official warning coverage remains incomplete. F1 adds no backend behavior,
+provider, persistence, authentication, routing, or live agent integration.

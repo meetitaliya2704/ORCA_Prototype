@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +14,12 @@ class Settings(BaseSettings):
     app_name: str = "ORCA Base API"
     app_env: str = "development"
     api_prefix: str = "/v1"
+    cors_allowed_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
 
     redis_enabled: bool = False
     redis_url: str | None = "redis://localhost:6379/0"
@@ -256,6 +263,30 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def cors_origins_are_explicit_and_safe(self) -> "Settings":
+        normalized: list[str] = []
+        for raw_origin in self.cors_allowed_origins:
+            origin = raw_origin.strip().rstrip("/")
+            parsed = urlsplit(origin)
+            if (
+                origin == "*"
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ValueError(
+                    "CORS_ALLOWED_ORIGINS must contain explicit HTTP(S) origins"
+                )
+            if origin not in normalized:
+                normalized.append(origin)
+        self.cors_allowed_origins = normalized
+        return self
 
     @model_validator(mode="after")
     def redis_configuration_is_complete(self) -> "Settings":

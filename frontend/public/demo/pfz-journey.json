@@ -1,0 +1,122 @@
+{
+  "request": {
+    "origin": { "latitude": 20.5, "longitude": 72.9 },
+    "at": "2026-08-27T12:00:00Z",
+    "operational_limits": {
+      "maximum_significant_wave_height_m": 2,
+      "maximum_wind_speed_m_s": 12,
+      "maximum_surface_current_speed_m_s": 1
+    },
+    "near_limit_percentage": 10,
+    "include_origin_evidence": true,
+    "include_destination_evidence": true,
+    "include_geojson": true
+  },
+  "generated_at": "2026-08-27T12:00:01Z",
+  "journey_status": "PFZ_AVAILABLE_CAUTION",
+  "pfz_resolution": { "status": "PFZ_FOUND", "failure": null },
+  "pfz": {
+    "query": { "latitude": 20.5, "longitude": 72.9, "at": "2026-08-27T12:00:00Z" },
+    "nearest_pfz": {
+      "sector_code": "DEMO-SECTOR",
+      "region_name": "Demonstration Gujarat Region",
+      "landing_centre": "Demonstration Landing Centre",
+      "latitude": 20.72,
+      "longitude": 72.68,
+      "distance_km": 34.1,
+      "bearing_deg": 316.2,
+      "direction": "NW",
+      "distance_min_km": 30,
+      "distance_max_km": 38,
+      "depth_min_m": 20,
+      "depth_max_m": 40
+    },
+    "valid_from": "2026-08-26T18:30:00Z",
+    "valid_until": "2026-08-27T18:29:59Z",
+    "forecast_date": "2026-08-27",
+    "source": { "name": "INCOIS demonstration fixture" },
+    "cache_status": "fresh",
+    "completeness": "complete",
+    "failed_sectors": [],
+    "warnings": ["Saved demonstration data; not live."],
+    "geojson": { "type": "Feature", "geometry": { "type": "Point", "coordinates": [72.68, 20.72] }, "properties": {} },
+    "notice": "Decision-support information; verify current official advisories."
+  },
+  "origin": {
+    "location": { "latitude": 20.5, "longitude": 72.9 },
+    "state": "available",
+    "evidence": {
+      "request": { "latitude": 20.5, "longitude": 72.9, "at": "2026-08-27T12:00:00Z" },
+      "generated_at": "2026-08-27T12:00:01Z",
+      "status": "complete",
+      "summary": { "requested_sources": 7, "available_sources": 5, "unavailable_sources": 0, "degraded_sources": 2, "pending_sources": 0 },
+      "evidence": {
+        "pfz": { "state": "available", "data": {} },
+        "sst": { "state": "available", "data": { "temperature_celsius": 28.7, "valid_time": "2026-08-27T00:00:00Z", "provider": "Copernicus Marine Service", "product_id": "SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001", "dataset_id": "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2", "cache_status": "fresh", "sampling_quality": "nearest_grid_cell", "sampled_location": { "latitude": 20.5, "longitude": 72.875 }, "distance_km": 2.6, "warnings": [] } },
+        "chlorophyll": { "state": "degraded", "data": { "chlorophyll_mg_m3": 1.12, "uncertainty_percent": 54, "valid_time": "2026-08-26T00:00:00Z", "provider": "Copernicus Marine Service", "dataset_id": "cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D", "cache_status": "fresh", "evidence_quality": "degraded", "warnings": ["Demonstration uncertainty is above the configured supporting-evidence threshold."], "attribution": "Generated using CMEMS Products, production centre ACRI-ST" } },
+        "waves": { "state": "available", "data": { "significant_wave_height": { "value": 1.35, "unit": "m" }, "valid_time": "2026-08-27T12:00:00Z", "source": { "name": "Copernicus Marine", "product_id": "GLOBAL_ANALYSISFORECAST_WAV_001_027", "dataset_id": "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i" }, "quality": "nearest_valid_ocean_cell", "cache_status": "fresh", "warnings": [] } },
+        "wind": { "state": "available", "data": { "wind_speed": { "value": 8.4, "unit": "m/s" }, "wind_direction_from": { "value": 248, "unit": "degree", "compass": "W" }, "valid_time": "2026-08-27T12:00:00Z", "source": { "name": "Copernicus Marine" }, "quality": "nearest_valid_grid_cell", "cache_status": "fresh", "warnings": [] } },
+        "currents": { "state": "available", "data": { "total_current": { "speed_mps": 0.42, "direction_toward_compass": "SE" }, "valid_time": "2026-08-27T12:00:00Z", "provider": "Copernicus Marine Service", "dataset_id": "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i", "sampling_quality": "nearest_valid_water_cell", "evidence_quality": "normal", "cache_status": "fresh", "warnings": [] } },
+        "sea_level": { "state": "degraded", "data": { "total_modelled_sea_level_m": 0.31, "valid_time": "2026-08-27T12:00:00Z", "provider": "Copernicus Marine Service", "dataset_id": "cmems_mod_glo_phy_anfc_merged-sl_PT1H-i", "sampling_quality": "nearest_valid_water_cell", "spatial_representativeness": "degraded", "cache_status": "fresh", "warnings": ["Coastal fallback used in demonstration data."], "attribution": "E.U. Copernicus Marine Service Information" } }
+      },
+      "failures": [],
+      "notices": ["Decision-support information; not certified navigation advice."]
+    },
+    "assessment": {
+      "request": {}, "generated_at": "2026-08-27T12:00:01Z", "outcome": "CAUTION", "evidence_confidence": "DEGRADED",
+      "policy": {}, "rules": [{ "rule_id": "wave_height_limit", "observed_value": 1.35, "unit": "m", "configured_limit": 2, "outcome": "within_limit", "evidence_quality": "normal" }],
+      "reasons": [{ "code": "EVIDENCE_DEGRADED", "message": "Supporting evidence includes degraded source data." }],
+      "critical_evidence": {}, "context": {}, "official_warning_coverage": "not_integrated",
+      "notices": ["Official warnings are not integrated."]
+    },
+    "failure": null
+  },
+  "destination": {
+    "location": { "latitude": 20.72, "longitude": 72.68 },
+    "state": "available",
+    "evidence": {
+      "request": { "latitude": 20.72, "longitude": 72.68, "at": "2026-08-27T12:00:00Z" },
+      "generated_at": "2026-08-27T12:00:01Z",
+      "status": "complete",
+      "summary": { "requested_sources": 7, "available_sources": 7, "unavailable_sources": 0, "degraded_sources": 0, "pending_sources": 0 },
+      "evidence": {
+        "pfz": { "state": "available", "data": {} },
+        "sst": { "state": "available", "data": { "temperature_celsius": 28.5, "valid_time": "2026-08-27T00:00:00Z", "provider": "Copernicus Marine Service", "cache_status": "fresh" } },
+        "chlorophyll": { "state": "available", "data": { "chlorophyll_mg_m3": 0.78, "uncertainty_percent": 22, "valid_time": "2026-08-26T00:00:00Z", "provider": "Copernicus Marine Service", "cache_status": "fresh" } },
+        "waves": { "state": "available", "data": { "significant_wave_height": { "value": 1.82, "unit": "m" }, "valid_time": "2026-08-27T12:00:00Z", "source": { "name": "Copernicus Marine" }, "cache_status": "fresh" } },
+        "wind": { "state": "available", "data": { "wind_speed": { "value": 9.1, "unit": "m/s" }, "wind_direction_from": { "value": 260, "compass": "W" }, "valid_time": "2026-08-27T12:00:00Z", "source": { "name": "Copernicus Marine" }, "cache_status": "fresh" } },
+        "currents": { "state": "available", "data": { "total_current": { "speed_mps": 0.51, "direction_toward_compass": "S" }, "valid_time": "2026-08-27T12:00:00Z", "provider": "Copernicus Marine Service", "cache_status": "fresh" } },
+        "sea_level": { "state": "available", "data": { "total_modelled_sea_level_m": 0.27, "valid_time": "2026-08-27T12:00:00Z", "provider": "Copernicus Marine Service", "cache_status": "fresh" } }
+      },
+      "failures": [], "notices": []
+    },
+    "assessment": {
+      "request": {}, "generated_at": "2026-08-27T12:00:01Z", "outcome": "CAUTION", "evidence_confidence": "NORMAL",
+      "policy": {}, "rules": [{ "rule_id": "wave_height_limit", "observed_value": 1.82, "unit": "m", "configured_limit": 2, "outcome": "near_limit", "evidence_quality": "normal" }],
+      "reasons": [{ "code": "WAVE_NEAR_LIMIT", "message": "Wave height is near the supplied limit." }],
+      "critical_evidence": {}, "context": {}, "official_warning_coverage": "not_integrated", "notices": []
+    },
+    "failure": null
+  },
+  "distance": { "kilometres": 34.1, "bearing_degrees": 316.2, "direction": "NW" },
+  "reasons": [
+    { "code": "VALID_PFZ_FOUND", "message": "A valid PFZ advisory was found." },
+    { "code": "ORIGIN_CAUTION", "message": "Origin evidence warrants caution." },
+    { "code": "DESTINATION_CAUTION", "message": "Destination evidence warrants caution." },
+    { "code": "ROUTE_NOT_EVALUATED", "message": "The reference line is not an evaluated route." },
+    { "code": "GEOFENCES_NOT_EVALUATED", "message": "Geofences were not evaluated." },
+    { "code": "OFFICIAL_WARNINGS_NOT_INTEGRATED", "message": "Official warnings are not integrated." },
+    { "code": "PFZ_DOES_NOT_GUARANTEE_FISH_PRESENCE", "message": "PFZ does not guarantee fish presence." }
+  ],
+  "reason_codes": ["VALID_PFZ_FOUND", "ORIGIN_CAUTION", "DESTINATION_CAUTION", "ROUTE_NOT_EVALUATED", "GEOFENCES_NOT_EVALUATED", "OFFICIAL_WARNINGS_NOT_INTEGRATED", "PFZ_DOES_NOT_GUARANTEE_FISH_PRESENCE"],
+  "notices": ["Demonstration Snapshot — saved data, not live.", "Verify official advisories before operational decisions."],
+  "limitations": { "route_evaluated": false, "geofences_evaluated": false, "official_warning_coverage": "not_integrated" },
+  "geojson": {
+    "type": "FeatureCollection",
+    "features": [
+      { "type": "Feature", "geometry": { "type": "Point", "coordinates": [72.9, 20.5] }, "properties": { "feature_type": "origin" } },
+      { "type": "Feature", "geometry": { "type": "Point", "coordinates": [72.68, 20.72] }, "properties": { "feature_type": "pfz_destination" } },
+      { "type": "Feature", "geometry": { "type": "LineString", "coordinates": [[72.9, 20.5], [72.68, 20.72]] }, "properties": { "feature_type": "reference_line", "label": "reference_line_not_evaluated_route", "navigable_route": false, "route_evaluated": false, "geofences_evaluated": false } }
+    ]
+  }
+}

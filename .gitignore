@@ -10,3 +10,13 @@ __pycache__/
 *.part
 performance-report*.json
 runtime/performance/
+# Agent skill temporary files
+.agents/skills/**/__pycache__/
+.agents/skills/**/*.pyc
+.agents/skills/**/.cache/
+frontend/node_modules/
+frontend/.next/
+frontend/coverage/
+frontend/tsconfig.tsbuildinfo
+frontend/.env.local
+frontend/.env.*.local
