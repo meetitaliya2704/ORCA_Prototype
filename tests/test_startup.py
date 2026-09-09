@@ -21,6 +21,14 @@ class BlockOptionalPackages(importlib.abc.MetaPathFinder):
             or fullname.startswith("ecmwf.")
             or fullname == "eccodes"
             or fullname.startswith("eccodes.")
+            or fullname == "sqlalchemy"
+            or fullname.startswith("sqlalchemy.")
+            or fullname == "alembic"
+            or fullname.startswith("alembic.")
+            or fullname == "sqlalchemy"
+            or fullname.startswith("sqlalchemy.")
+            or fullname == "alembic"
+            or fullname.startswith("alembic.")
         ):
             raise ModuleNotFoundError(f"{fullname} intentionally unavailable")
         return None
@@ -37,6 +45,11 @@ async def verify_startup():
         assert "copernicusmarine" not in sys.modules
         assert "ecmwf" not in sys.modules
         assert "eccodes" not in sys.modules
+        assert "sqlalchemy" not in sys.modules
+        assert "alembic" not in sys.modules
+        assert app.state.database_manager is None
+        assert "sqlalchemy" not in sys.modules
+        assert "alembic" not in sys.modules
         chlorophyll = next(
             source
             for source in app.state.marine_service.sources
@@ -52,13 +65,16 @@ async def verify_startup():
         assert type(sea_level).__name__ == "DemoMarineSource"
         assert sea_level.variable == "TOTAL_MODELLED_SEA_LEVEL"
         assert app.state.tide_service is None
+        assert app.state.database_manager is None
 
 asyncio.run(verify_startup())
 """
     environment = os.environ.copy()
     environment.pop("DATABASE_URL", None)
+    environment["DATABASE_ENABLED"] = "false"
     environment.pop("REDIS_URL", None)
     environment["REDIS_ENABLED"] = "false"
+    environment["DATABASE_ENABLED"] = "false"
     environment["CHLOROPHYLL_ENABLED"] = "false"
     environment["COPERNICUS_TIDES_ENABLED"] = "false"
 

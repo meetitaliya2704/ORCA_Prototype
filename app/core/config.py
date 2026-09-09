@@ -1,7 +1,7 @@
 from functools import lru_cache
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,13 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",
         ]
     )
+
+    database_enabled: bool = False
+    database_url: SecretStr | None = None
+    database_pool_size: int = Field(default=3, ge=1, le=10)
+    database_max_overflow: int = Field(default=2, ge=0, le=10)
+    database_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    database_pool_recycle_seconds: int = Field(default=1800, ge=60, le=7200)
 
     redis_enabled: bool = False
     redis_url: str | None = "redis://localhost:6379/0"
@@ -293,6 +300,17 @@ class Settings(BaseSettings):
         if self.redis_enabled and not (self.redis_url or "").strip():
             raise ValueError(
                 "REDIS_URL is required when REDIS_ENABLED=true"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def database_configuration_is_complete(self) -> "Settings":
+        if self.database_enabled and (
+            self.database_url is None
+            or not self.database_url.get_secret_value().strip()
+        ):
+            raise ValueError(
+                "DATABASE_URL is required when DATABASE_ENABLED=true"
             )
         return self
 

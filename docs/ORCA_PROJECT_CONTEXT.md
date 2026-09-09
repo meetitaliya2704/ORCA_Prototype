@@ -26,7 +26,9 @@ ORCA is decision support, not certified navigation advice.
 
 - Checkpoints A through D6-1A described in this document are complete, with
   557 offline tests passing before P1B-1 development.
-- Database dependencies and runtime components have been removed.
+- Main Step 1 restores optional SQLAlchemy/Alembic persistence only for future
+  assistant conversations, runs, and normalized evidence. Marine data and
+  ordinary startup remain database-independent.
 - Redis is an optional integration; the default cache is in memory.
 - `MemoryJsonCache` enforces TTL expiration using a monotonic clock.
 - A dedicated `#sectorname` regression fixture protects the live-page variant.
@@ -103,7 +105,10 @@ Before new implementation, run the current test suite and inspect whether these 
 
 ## 4. Architecture decision — API-first, cache-assisted
 
-The earlier PostgreSQL/PostGIS persistence milestone has been abandoned for the hackathon MVP because it adds unnecessary ingestion, schema, migration, and operational work.
+The earlier PostgreSQL/PostGIS marine-provider persistence milestone remains
+abandoned because it adds unnecessary ingestion and operational work. Main
+Step 1 introduces only a narrow, optional assistant-record persistence layer;
+it does not persist marine fields or require PostGIS.
 
 The active architecture is:
 
@@ -124,13 +129,17 @@ Frontend or agent
 - PostgreSQL is not required.
 - PostGIS is not required.
 - Supabase is not required.
-- SQLAlchemy, GeoAlchemy2, and Alembic are not required by the running application.
+- SQLAlchemy, asyncpg, and Alembic are optional and used only when assistant
+  persistence is enabled. GeoAlchemy2 and PostGIS remain absent.
 - The application and ordinary tests must start without `DATABASE_URL`.
 - Redis is optional; the default local cache is in memory.
 - Small geospatial searches, such as nearest PFZ, are performed in Python.
 - External providers are not called repeatedly while equivalent fresh cached data exists.
 
-If database helper files remain from the base skeleton, they are legacy/optional and must not be imported during normal startup. Do not resume database-schema work unless the user explicitly changes the architecture again.
+Main Step 1 explicitly supersedes the earlier no-persistence restriction for
+assistant records only. Database modules are imported during application
+lifespan only when `DATABASE_ENABLED=true`; normal startup remains independent.
+Marine provider caches and regional fields are not moved into PostgreSQL.
 
 ## 5. Target runtime workflow
 
@@ -1011,3 +1020,37 @@ The line remains “Reference line — route not evaluated.” PFZ data does not
 guarantee fish presence, `WITHIN_CONFIGURED_LIMITS` is never renamed safe, and
 official warning coverage remains incomplete. F1 adds no backend behavior,
 provider, persistence, authentication, routing, or live agent integration.
+
+### Main Step 1 — Supabase PostgreSQL and agent foundation
+
+Main Step 1 adds an opt-in backend persistence boundary for future assistant
+work without changing E1–E3 scientific services. SQLAlchemy 2 async ORM uses
+`asyncpg`, PostgreSQL UUIDs, timezone-aware timestamps, and JSONB. The
+application owns a small conservative pool with connection pre-ping and
+parameter-hiding enabled. When `DATABASE_ENABLED=false`, neither a database
+connection nor database-module import is required during startup.
+
+Alembic revision `20260908_0001` creates four ORCA-owned tables:
+`conversations`, ordered `messages`, `assistant_runs`, and one normalized
+`evidence_snapshots` record per run. Foreign keys cascade only within the
+owning conversation/run graph; assistant-message deletion becomes null.
+Controlled-value checks, non-negative usage checks, ordering uniqueness, and
+lookup indexes are database-enforced. Evidence JSON is defensive-copied,
+finite, size-bounded, and checked for sensitive fields. Credentials, raw
+provider exceptions, full marine datasets, and binary data are not persistence
+payloads.
+
+The initial agent package is deliberately provider-free. It contains a typed
+state contract suitable for a future LangGraph `StateGraph`, an immutable
+application-owned capability registry, a deterministic coordinator node, and
+a stub router protocol. Nearest PFZ, marine evidence, operational assessment,
+and source explanation are available. Official alerts and habitat/productivity
+analysis remain planned or partial; lower-risk routing and avoidance zones
+remain planned. No model can promote these statuses.
+
+The container foundation runs as a non-root user, listens on `0.0.0.0` and the
+platform `PORT`, retains `/v1/health`, and expects explicit CORS origins.
+Database, Gemini, and provider credentials stay backend-only. Migrations are a
+separate release operation (`alembic upgrade head`), not an automatic startup
+side effect. This step does not implement G0-1, an assistant endpoint,
+authentication, PostGIS, vector search, official alerts, or route generation.

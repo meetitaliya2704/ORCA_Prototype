@@ -30,10 +30,13 @@ def test_unsafe_cors_origins_are_rejected(origin):
         Settings(_env_file=None, cors_allowed_origins=[origin])
 
 
-def test_database_configuration_is_not_required() -> None:
+def test_database_configuration_is_optional_by_default() -> None:
     settings = Settings(_env_file=None)
 
-    assert not hasattr(settings, "database_url")
+    assert settings.database_enabled is False
+    assert settings.database_url is None
+    assert settings.database_pool_size == 3
+    assert settings.database_max_overflow == 2
     assert not hasattr(settings, "pfz_sector_codes")
     assert settings.redis_enabled is False
     assert settings.pfz_fetch_concurrency == 4

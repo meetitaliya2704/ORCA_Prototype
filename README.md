@@ -20,9 +20,10 @@ Client request
     -> typed JSON or GeoJSON response
 ```
 
-The application does not require a database. The default cache is an
-in-process TTL cache, so local development and tests require no external
-services.
+Marine-source caching remains database-independent. Main Step 1 adds optional,
+backend-only PostgreSQL persistence for future assistant conversations, runs,
+and normalized evidence. The application still starts with this persistence
+disabled, and ordinary tests require no external service.
 
 Redis is optional. Enable it only when a shared cache is useful; install the
 optional dependency and run the Redis service first:
@@ -38,6 +39,73 @@ Then configure:
 REDIS_ENABLED=true
 REDIS_URL=redis://localhost:6379/0
 ```
+
+## Optional Supabase PostgreSQL persistence
+
+FastAPI connects to Supabase through SQLAlchemy's async PostgreSQL dialect; no
+Supabase SDK is used. Install the optional database dependencies:
+
+```powershell
+python -m pip install -e ".[database,test]"
+```
+
+Set `DATABASE_ENABLED=true` and a backend-only `DATABASE_URL` using the
+`postgresql+asyncpg://` scheme. Plain `postgresql://` and `postgres://` URLs
+are normalized internally. Never prefix the setting with `NEXT_PUBLIC_` or
+otherwise expose it to frontend code.
+
+Apply the schema upgrade after reviewing the target database:
+
+```powershell
+alembic upgrade head
+```
+
+Revert only the Main Step 1 revision:
+
+```powershell
+alembic downgrade 20260908_0001:base
+```
+
+The migration creates `conversations`, `messages`, `assistant_runs`, and
+`evidence_snapshots`. It stores normalized point evidence and provenance JSON,
+not provider datasets, credentials, raw exceptions, or binary files. JSON
+payloads are finite, bounded to 1 MB per field, and reject sensitive field
+names.
+
+Offline persistence tests use SQLite solely as a test double:
+
+```powershell
+pytest tests/test_database_config.py tests/test_db_models.py `
+  tests/test_db_repositories.py tests/test_database_errors.py `
+  tests/test_alembic_migration.py
+```
+
+## Container-ready backend
+
+The production container runs as a non-root user and binds FastAPI to
+`0.0.0.0` using the platform-provided `PORT`:
+
+```text
+uvicorn app.main:app --host 0.0.0.0 --port \$PORT
+```
+
+Build and run locally without putting secrets in the image:
+
+```powershell
+docker build -t orca-backend .
+docker run --env-file .env -p 8000:8000 orca-backend
+```
+
+Use `GET /v1/health` as the deployment health check. Run migrations as a
+separate release step:
+
+```text
+alembic upgrade head
+```
+
+Browser origins remain an explicit JSON list in `CORS_ALLOWED_ORIGINS`.
+Wildcard origins are rejected, and credentials remain disabled in the CORS
+middleware.
 
 ## What is currently implemented
 
@@ -67,6 +135,11 @@ REDIS_URL=redis://localhost:6379/0
   direct ecCodes decoding, bounded mirror failover, and global-field reuse.
 - A demonstration WebSocket ingestion-progress stream.
 - Separate demonstration and PFZ command-line ingestion jobs.
+- Optional SQLAlchemy/asyncpg conversation and evidence persistence with one
+  Alembic revision.
+- A provider-free agent foundation: typed shared state, immutable capability
+  registry, coordinator node, stub intent-router interface, and typed request
+  and response schemas.
 
 Current endpoints:
 

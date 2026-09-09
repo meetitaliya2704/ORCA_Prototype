@@ -1,23 +1,22 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-import asyncio
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.clients.demo import DemoMarineSource
 from app.clients.copernicus_chlorophyll import CopernicusMarineChlorophyllProvider
 from app.clients.copernicus_currents import (
     CopernicusCurrentMetadataResolver,
     CopernicusMarineCurrentProvider,
 )
+from app.clients.copernicus_sst import CopernicusMarineSSTProvider
 from app.clients.copernicus_tides import (
     CopernicusMarineTideProvider,
     CopernicusTideMetadataResolver,
 )
-from app.clients.copernicus_sst import CopernicusMarineSSTProvider
 from app.clients.copernicus_waves import (
     COPERNICUS_WAVE_DATASET_VERSION,
     CopernicusMarineWaveCycleResolver,
@@ -27,6 +26,7 @@ from app.clients.copernicus_wind import (
     COPERNICUS_WIND_DATASET_VERSION,
     CopernicusMarineWindProvider,
 )
+from app.clients.demo import DemoMarineSource
 from app.clients.ecmwf_wind import ECMWFOpenDataWindProvider
 from app.clients.incois_pfz import IncoisPFZClient
 from app.core.config import get_settings
@@ -36,18 +36,17 @@ from app.core.performance import (
     PerformanceMiddleware,
     PerformanceRecorder,
 )
+from app.services.assessment import MarineAssessmentService
 from app.services.cache import MemoryJsonCache, RedisJsonCache
 from app.services.chlorophyll import (
     CopernicusChlorophyllMarineSource,
     CopernicusChlorophyllService,
 )
-from app.services.assessment import MarineAssessmentService
 from app.services.currents import (
     CopernicusCurrentMarineSource,
     CopernicusCurrentService,
 )
 from app.services.evidence import MarineEvidenceService
-from app.services.tides import CopernicusTideMarineSource, CopernicusTideService
 from app.services.marine import MarineConditionsService
 from app.services.pfz import (
     PFZNearestService,
@@ -56,6 +55,7 @@ from app.services.pfz import (
 )
 from app.services.pfz_journey import PFZJourneyService
 from app.services.sst import CopernicusSSTMarineSource, CopernicusSSTService
+from app.services.tides import CopernicusTideMarineSource, CopernicusTideService
 from app.services.waves import CopernicusWaveMarineSource, CopernicusWaveService
 from app.services.wind import CopernicusWindMarineSource, CopernicusWindService
 from app.services.wind_forecast import (
@@ -64,12 +64,11 @@ from app.services.wind_forecast import (
     ECMWFWindMarineSource,
     TimeSelectingWindMarineSource,
 )
+from app.snapshots.chlorophyll import ChlorophyllSnapshotManager
 from app.snapshots.jobs import RefreshJobManager
 from app.snapshots.manager import SSTSnapshotManager
-from app.snapshots.chlorophyll import ChlorophyllSnapshotManager
 from app.snapshots.scheduler import SnapshotScheduler
 from app.snapshots.store import InMemorySnapshotStore
-
 
 settings = get_settings()
 
@@ -91,6 +90,18 @@ def _build_sst_provider(measure):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    database_manager = None
+    if settings.database_enabled:
+        try:
+            from app.db.session import DatabaseSessionManager
+
+            database_manager = DatabaseSessionManager(settings)
+        except (ImportError, ValueError):
+            raise RuntimeError(
+                "DATABASE_STARTUP_CONFIGURATION_FAILED"
+            ) from None
+    app.state.database_manager = database_manager
+
     diagnostics_enabled = bool(
         getattr(
             app.state,
@@ -513,6 +524,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await refresh_jobs.close()
         await cache.close()
         await client.aclose()
+        if database_manager is not None:
+            await database_manager.close()
 
 
 app = FastAPI(

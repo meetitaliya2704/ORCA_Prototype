@@ -21,12 +21,26 @@ ecmwf = [
 redis = [
   "redis>=5.2",
 ]
+database = [
+  "SQLAlchemy[asyncio]==2.0.43",
+  "asyncpg==0.30.0",
+  "alembic==1.16.5",
+]
+agents = [
+  "langgraph==1.2.11",
+  "langchain-core==1.6.2",
+]
 test = [
   "pytest>=8.3",
   "pytest-asyncio>=0.25",
+  "aiosqlite==0.21.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["alembic*", "frontend*", "tests*"]
 
