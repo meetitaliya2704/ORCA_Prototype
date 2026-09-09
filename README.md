@@ -80,6 +80,59 @@ pytest tests/test_database_config.py tests/test_db_models.py `
   tests/test_alembic_migration.py
 ```
 
+## Working assistant (Main Step 2)
+
+`POST /v1/assistant/query` is an opt-in, persisted LangGraph workflow. Install
+both optional groups and apply the Step 1 migration before enabling it:
+
+```powershell
+python -m pip install -e ".[database,agents,test]"
+alembic upgrade head
+```
+
+The assistant requires `DATABASE_ENABLED=true` and `ASSISTANT_ENABLED=true`.
+Gemini intent routing remains qualification-limited and is separately enabled
+with `ASSISTANT_GEMINI_ROUTING_ENABLED=true`; its only permitted model is
+`gemini-3.7-flash`, using the Developer API (`vertexai=False`) and exactly one
+forced `route_request` function. No automatic model fallback is configured.
+When Gemini routing is disabled or safely unavailable, ORCA uses a conservative
+deterministic English/Hindi/Gujarati keyword router for obvious requests.
+
+Example deterministic request:
+
+```json
+{
+  "message": "What are the marine conditions near my location?",
+  "preferred_language": "en",
+  "latitude": 20.5,
+  "longitude": 72.9,
+  "requested_time": "2026-09-09T12:00:00Z",
+  "mode": "live"
+}
+```
+
+The graph coordinates only existing deterministic boundaries: nearest PFZ/E3,
+E1 marine evidence, E2 operational assessment, evidence validation, response
+formatting, and persistence. A nearest-PFZ request with supplied operational
+limits uses E3; marine evidence with supplied limits is passed to E2 without a
+second provider collection. At most four scientific-service calls are allowed,
+and current paths use one. Planned capabilities return an explicit limitation
+without invoking a provider. The model cannot assign capability availability,
+alter measurements, calculate limits, or promote planned work.
+
+Missing location, requested time, or operational limits produces a typed
+clarification response. Continuing with the returned `conversation_id` appends
+an ordered message/run record. Compact evidence summaries and provenance—not
+raw provider datasets or exceptions—are stored. Demonstration mode must be
+selected explicitly and is always labelled `Demonstration Snapshot`; it is
+never an automatic fallback after a live failure.
+
+Gemini and database credentials are backend-only. The frontend must never
+receive `DATABASE_URL` or `GOOGLE_API_KEY`. Main Step 2 adds no official-alert,
+geofence, route-generation, authentication, or new-provider capability, and
+assistant wording remains decision support rather than safety/navigation
+approval.
+
 ## Container-ready backend
 
 The production container runs as a non-root user and binds FastAPI to
@@ -140,10 +193,14 @@ middleware.
 - A provider-free agent foundation: typed shared state, immutable capability
   registry, coordinator node, stub intent-router interface, and typed request
   and response schemas.
+- An opt-in persisted LangGraph assistant endpoint with application-owned
+  capability gating, deterministic service execution, safe Gemini-router
+  fallback, clarification, demonstration, and compact evidence provenance.
 
 Current endpoints:
 
 - `GET /v1/health`
+- `POST /v1/assistant/query`
 - `GET /v1/marine/conditions?latitude=20.5&longitude=72.9`
 - `GET /v1/marine/sst?latitude=18.025&longitude=70.525&at=2026-08-27T00:00:00Z`
 - `GET /v1/marine/waves?latitude=18.025&longitude=70.525&at=2026-08-29T00:00:00Z`

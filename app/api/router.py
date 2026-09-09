@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    assistant,
     assessment,
     evidence,
     health,
@@ -13,6 +14,7 @@ from app.api.routes import (
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(assistant.router)
 api_router.include_router(assessment.router)
 api_router.include_router(evidence.router)
 api_router.include_router(marine.router)

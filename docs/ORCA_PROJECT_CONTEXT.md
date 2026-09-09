@@ -1054,3 +1054,58 @@ Database, Gemini, and provider credentials stay backend-only. Migrations are a
 separate release operation (`alembic upgrade head`), not an automatic startup
 side effect. This step does not implement G0-1, an assistant endpoint,
 authentication, PostGIS, vector search, official alerts, or route generation.
+
+### Main Step 2 — working multi-agent assistant
+
+Main Step 2 adds the opt-in typed `POST /v1/assistant/query` endpoint. It is a
+single-process LangGraph workflow made of focused logical nodes: coordinator,
+intent router, application-owned capability guard, the selected deterministic
+ORCA service, evidence validator, operational-assessment boundary, response
+formatter, and persistence finalizer. These are not independent microservices.
+The graph never calls ORCA through internal HTTP and never invokes every source
+for every message. A hard maximum of four scientific-service calls is enforced;
+all currently implemented paths use one service boundary.
+
+Available capabilities route to existing code only: nearest PFZ uses the PFZ
+service, or E3 when request-supplied limits accompany the PFZ request; marine
+conditions use E1; operational conditions use E2; and source explanation reads
+the latest compact provenance stored for that conversation. When limits
+accompany E1 marine evidence, the already-collected bundle is evaluated through
+E2 without another provider collection. Wind direction-from, current
+direction-toward, chlorophyll uncertainty, provider validity, freshness,
+degraded evidence, and coastal warnings remain source-owned metadata.
+
+Official alerts, habitat screening, and productivity analysis remain planned
+or partial. Lower-risk routing and avoidance zones remain planned, and
+`geofences_evaluated` is always false in this checkout. The immutable registry,
+not Gemini output, owns those states. Planned requests return deterministic
+limitations and invoke no nonexistent service. No answer calls a reference
+line safe or recommended, and `WITHIN_CONFIGURED_LIMITS` is not renamed.
+
+Gemini routing is separately opt-in behind
+`ASSISTANT_GEMINI_ROUTING_ENABLED`. It forces `gemini-3.7-flash`,
+`vertexai=False`, temperature zero, no SDK retry loop, and exactly one
+`route_request` function. Only intent, canonical required-information fields,
+and confidence are accepted through strict Pydantic validation. Gemini 429,
+503, timeout, authentication, and malformed-tool responses are sanitized and
+fall back to the conservative deterministic router without switching models.
+This fallback recognizes obvious English, Hindi, and Gujarati request families;
+it is deliberately not presented as general language understanding. Gemini
+routing qualification remains incomplete, and Main Step 2 makes no live model
+request during tests or startup.
+
+Requests persist an ordered user message and running assistant run before graph
+execution. Successful completion appends the assistant response, closes the
+run with sanitized latency/token metadata, and optionally stores a compact
+evidence/provenance snapshot. Cancellation is re-raised after recording a
+cancelled run; expected failures record safe codes without raw provider or
+database exceptions. Transactions are short and do not remain open while model
+or provider work is awaited. Conversation IDs continue clarification and source
+explanation turns.
+
+Demonstration mode is explicit and loads one sanitized saved response labelled
+`Demonstration Snapshot`, including its original retrieval time. It never
+activates after a live failure and makes no provider/model request. The
+assistant requires the optional Step 1 database boundary, but remains disabled
+by default so normal startup and tests need neither PostgreSQL nor agent
+packages. Database and Gemini credentials remain backend-only.

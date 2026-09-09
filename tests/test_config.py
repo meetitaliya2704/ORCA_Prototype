@@ -23,7 +23,12 @@ def test_cors_origins_are_explicit_normalized_and_deduplicated():
 
 @pytest.mark.parametrize(
     "origin",
-    ["*", "file:///tmp/orca", "https://orca.example.org/path", "https://user:secret@orca.example.org"],
+    [
+        "*",
+        "file:///tmp/orca",
+        "https://orca.example.org/path",
+        "https://user:secret@orca.example.org",
+    ],
 )
 def test_unsafe_cors_origins_are_rejected(origin):
     with pytest.raises(ValueError, match="CORS_ALLOWED_ORIGINS"):
@@ -37,6 +42,10 @@ def test_database_configuration_is_optional_by_default() -> None:
     assert settings.database_url is None
     assert settings.database_pool_size == 3
     assert settings.database_max_overflow == 2
+    assert settings.assistant_enabled is False
+    assert settings.assistant_gemini_routing_enabled is False
+    assert settings.assistant_model == "gemini-3.7-flash"
+    assert settings.google_api_key is None
     assert not hasattr(settings, "pfz_sector_codes")
     assert settings.redis_enabled is False
     assert settings.pfz_fetch_concurrency == 4
@@ -67,17 +76,13 @@ def test_database_configuration_is_optional_by_default() -> None:
     assert settings.chlorophyll_snapshot_schema_version == "chlorophyll-snapshot-v1"
     assert settings.marine_snapshot_prewarm_points_json == []
     assert settings.copernicus_sst_enabled is False
-    assert (
-        settings.copernicus_sst_dataset_id
-        == "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2"
-    )
+    assert settings.copernicus_sst_dataset_id == "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2"
     assert settings.copernicus_sst_variable == "analysed_sst"
     assert settings.copernicus_sst_search_radius_km == 50
     assert settings.copernicus_sst_lookback_days == 3
     assert settings.copernicus_waves_enabled is False
     assert (
-        settings.copernicus_waves_dataset_id
-        == "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i"
+        settings.copernicus_waves_dataset_id == "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i"
     )
     assert settings.copernicus_waves_height_variable == "VHM0"
     assert settings.copernicus_waves_period_variable == "VTM02"
@@ -106,17 +111,23 @@ def test_database_configuration_is_optional_by_default() -> None:
     assert settings.chlorophyll_freshness_hours == 72
     assert settings.chlorophyll_high_uncertainty_percent == 50
     assert settings.copernicus_currents_enabled is False
-    assert settings.copernicus_currents_dataset_id == "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i"
+    assert (
+        settings.copernicus_currents_dataset_id
+        == "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i"
+    )
     assert settings.copernicus_currents_dataset_version == "202211"
     assert settings.copernicus_currents_max_radius_km == 15
     assert settings.copernicus_currents_calm_threshold_mps == 0.001
     assert settings.copernicus_currents_component_tolerance_mps == 0.002
     assert settings.copernicus_tides_enabled is False
-    assert settings.copernicus_tides_dataset_id == "cmems_mod_glo_phy_anfc_merged-sl_PT1H-i"
+    assert (
+        settings.copernicus_tides_dataset_id
+        == "cmems_mod_glo_phy_anfc_merged-sl_PT1H-i"
+    )
     assert settings.copernicus_tides_dataset_version == "202411"
     assert settings.copernicus_tides_max_radius_km == 10
     assert settings.copernicus_tides_static_alignment_tolerance_km == 1
-    assert settings.copernicus_tides_decomposition_tolerance_m == .005
+    assert settings.copernicus_tides_decomposition_tolerance_m == 0.005
     assert settings.copernicus_tides_static_cache_ttl_seconds == 604800
     assert settings.copernicus_tides_availability_ttl_seconds == 600
     assert settings.ecmwf_wind_enabled is False
@@ -130,6 +141,22 @@ def test_database_configuration_is_optional_by_default() -> None:
     assert settings.ecmwf_wind_read_timeout_seconds == 50
     assert settings.ecmwf_wind_calm_threshold_mps == 0.001
     assert settings.ecmwf_wind_max_horizon_hours == 360
+
+
+def test_enabled_assistant_requires_database() -> None:
+    with pytest.raises(ValidationError, match="DATABASE_ENABLED"):
+        Settings(_env_file=None, assistant_enabled=True)
+
+
+def test_gemini_router_requires_backend_key() -> None:
+    with pytest.raises(ValidationError, match="GOOGLE_API_KEY"):
+        Settings(
+            _env_file=None,
+            database_enabled=True,
+            database_url="postgresql://host/database",
+            assistant_enabled=True,
+            assistant_gemini_routing_enabled=True,
+        )
 
 
 def test_enabled_redis_requires_a_url() -> None:
@@ -154,15 +181,18 @@ def test_performance_diagnostics_configuration_is_bounded(overrides) -> None:
         Settings(_env_file=None, **overrides)
 
 
-@pytest.mark.parametrize("overrides", [
-    {"marine_snapshot_tile_size_degrees": 0},
-    {"marine_snapshot_heavy_concurrency": 0},
-    {"marine_snapshot_wait_timeout_seconds": 0},
-    {"marine_snapshot_scheduler_check_seconds": 0},
-    {"sst_snapshot_time_lookback_days": 0},
-    {"sst_snapshot_retryable_base_delay_seconds": 0},
-    {"sst_snapshot_non_retryable_cooldown_seconds": 0},
-])
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"marine_snapshot_tile_size_degrees": 0},
+        {"marine_snapshot_heavy_concurrency": 0},
+        {"marine_snapshot_wait_timeout_seconds": 0},
+        {"marine_snapshot_scheduler_check_seconds": 0},
+        {"sst_snapshot_time_lookback_days": 0},
+        {"sst_snapshot_retryable_base_delay_seconds": 0},
+        {"sst_snapshot_non_retryable_cooldown_seconds": 0},
+    ],
+)
 def test_snapshot_configuration_is_bounded(overrides) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **overrides)
@@ -176,7 +206,9 @@ def test_snapshot_stale_window_must_cover_fresh_window() -> None:
             marine_snapshot_max_stale_seconds=99,
         )
 
-    with pytest.raises(ValidationError, match="SST_SNAPSHOT_RETRYABLE_MAX_DELAY_SECONDS"):
+    with pytest.raises(
+        ValidationError, match="SST_SNAPSHOT_RETRYABLE_MAX_DELAY_SECONDS"
+    ):
         Settings(
             _env_file=None,
             sst_snapshot_retryable_base_delay_seconds=31,
@@ -199,19 +231,27 @@ def test_snapshot_prewarm_points_are_strictly_validated() -> None:
 
 def test_tide_cache_ttls_must_be_ordered() -> None:
     with pytest.raises(ValidationError, match="COPERNICUS_TIDES_STALE_TTL_SECONDS"):
-        Settings(_env_file=None,copernicus_tides_cache_ttl_seconds=60,copernicus_tides_stale_ttl_seconds=30)
+        Settings(
+            _env_file=None,
+            copernicus_tides_cache_ttl_seconds=60,
+            copernicus_tides_stale_ttl_seconds=30,
+        )
 
 
-@pytest.mark.parametrize("overrides",[
-    {"copernicus_tides_max_radius_km":0},
-    {"copernicus_tides_static_alignment_tolerance_km":0},
-    {"copernicus_tides_time_tolerance_hours":0},
-    {"copernicus_tides_decomposition_tolerance_m":0},
-    {"copernicus_tides_minimum_consecutive_samples":2},
-    {"copernicus_tides_availability_ttl_seconds":0},
-])
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"copernicus_tides_max_radius_km": 0},
+        {"copernicus_tides_static_alignment_tolerance_km": 0},
+        {"copernicus_tides_time_tolerance_hours": 0},
+        {"copernicus_tides_decomposition_tolerance_m": 0},
+        {"copernicus_tides_minimum_consecutive_samples": 2},
+        {"copernicus_tides_availability_ttl_seconds": 0},
+    ],
+)
 def test_tide_configuration_is_bounded(overrides) -> None:
-    with pytest.raises(ValidationError): Settings(_env_file=None,**overrides)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
 
 
 def test_enabled_redis_requires_the_optional_package(monkeypatch) -> None:
@@ -341,15 +381,22 @@ def test_chlorophyll_uncertainty_threshold_is_bounded(threshold: float) -> None:
 
 def test_current_cache_ttls_must_be_ordered() -> None:
     with pytest.raises(ValidationError, match="COPERNICUS_CURRENTS_STALE_TTL_SECONDS"):
-        Settings(_env_file=None, copernicus_currents_cache_ttl_seconds=60, copernicus_currents_stale_ttl_seconds=30)
+        Settings(
+            _env_file=None,
+            copernicus_currents_cache_ttl_seconds=60,
+            copernicus_currents_stale_ttl_seconds=30,
+        )
 
 
-@pytest.mark.parametrize("overrides", [
-    {"copernicus_currents_max_radius_km": 0},
-    {"copernicus_currents_time_tolerance_hours": 0},
-    {"copernicus_currents_calm_threshold_mps": -0.1},
-    {"copernicus_currents_component_tolerance_mps": 0},
-])
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"copernicus_currents_max_radius_km": 0},
+        {"copernicus_currents_time_tolerance_hours": 0},
+        {"copernicus_currents_calm_threshold_mps": -0.1},
+        {"copernicus_currents_component_tolerance_mps": 0},
+    ],
+)
 def test_current_configuration_bounds(overrides) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **overrides)
@@ -362,7 +409,12 @@ def test_ecmwf_sources_are_validated(source: str) -> None:
 
 
 def test_ecmwf_fallback_may_be_empty_but_must_differ() -> None:
-    assert Settings(_env_file=None, ecmwf_wind_fallback_source="").ecmwf_wind_fallback_source == ""
+    assert (
+        Settings(
+            _env_file=None, ecmwf_wind_fallback_source=""
+        ).ecmwf_wind_fallback_source
+        == ""
+    )
     with pytest.raises(ValidationError, match="must differ"):
         Settings(
             _env_file=None,

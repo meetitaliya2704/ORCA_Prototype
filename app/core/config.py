@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
@@ -28,6 +29,14 @@ class Settings(BaseSettings):
     database_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     database_pool_recycle_seconds: int = Field(default=1800, ge=60, le=7200)
 
+    assistant_enabled: bool = False
+    assistant_gemini_routing_enabled: bool = False
+    assistant_model: Literal["gemini-3.7-flash"] = "gemini-3.7-flash"
+    assistant_model_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
+    assistant_graph_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
+    assistant_max_scientific_service_calls: int = Field(default=4, ge=1, le=4)
+    google_api_key: SecretStr | None = None
+
     redis_enabled: bool = False
     redis_url: str | None = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 300
@@ -39,9 +48,7 @@ class Settings(BaseSettings):
     performance_diagnostics_enabled: bool = False
     performance_server_timing_enabled: bool = False
     performance_log_slow_request_ms: float = Field(default=1000.0, ge=0)
-    performance_profile_max_provider_concurrency: int = Field(
-        default=2, ge=1, le=8
-    )
+    performance_profile_max_provider_concurrency: int = Field(default=2, ge=1, le=8)
 
     evidence_aggregation_enabled: bool = True
     evidence_max_concurrent_sources: int = Field(default=7, ge=1, le=7)
@@ -59,7 +66,9 @@ class Settings(BaseSettings):
     sst_snapshot_time_lookback_days: int = Field(default=3, ge=1, le=30)
     sst_snapshot_retryable_base_delay_seconds: int = Field(default=30, ge=1, le=900)
     sst_snapshot_retryable_max_delay_seconds: int = Field(default=900, ge=1, le=86400)
-    sst_snapshot_non_retryable_cooldown_seconds: int = Field(default=900, ge=1, le=86400)
+    sst_snapshot_non_retryable_cooldown_seconds: int = Field(
+        default=900, ge=1, le=86400
+    )
     chlorophyll_snapshots_enabled: bool = False
     chlorophyll_snapshot_startup_warm_enabled: bool = False
     chlorophyll_snapshot_refresh_check_seconds: int = Field(
@@ -214,14 +223,22 @@ class Settings(BaseSettings):
     copernicus_tides_static_dataset_version: str = Field(default="202211", min_length=1)
     copernicus_tides_static_dataset_part: str = Field(default="bathy", min_length=1)
     copernicus_tides_max_radius_km: float = Field(default=10.0, gt=0, le=100)
-    copernicus_tides_static_alignment_tolerance_km: float = Field(default=1.0, gt=0, le=10)
+    copernicus_tides_static_alignment_tolerance_km: float = Field(
+        default=1.0, gt=0, le=10
+    )
     copernicus_tides_time_tolerance_hours: float = Field(default=1.0, gt=0, le=6)
     copernicus_tides_decomposition_tolerance_m: float = Field(default=0.005, gt=0, le=1)
     copernicus_tides_cache_ttl_seconds: int = Field(default=1800, ge=1, le=86400)
     copernicus_tides_stale_ttl_seconds: int = Field(default=21600, ge=1, le=604800)
-    copernicus_tides_static_cache_ttl_seconds: int = Field(default=604800, ge=3600, le=2592000)
-    copernicus_tides_metadata_cache_ttl_seconds: int = Field(default=3600, ge=1, le=86400)
-    copernicus_tides_metadata_unavailable_ttl_seconds: int = Field(default=600, ge=1, le=86400)
+    copernicus_tides_static_cache_ttl_seconds: int = Field(
+        default=604800, ge=3600, le=2592000
+    )
+    copernicus_tides_metadata_cache_ttl_seconds: int = Field(
+        default=3600, ge=1, le=86400
+    )
+    copernicus_tides_metadata_unavailable_ttl_seconds: int = Field(
+        default=600, ge=1, le=86400
+    )
     copernicus_tides_availability_ttl_seconds: int = Field(default=600, ge=1, le=86400)
     copernicus_tides_event_cache_ttl_seconds: int = Field(default=1800, ge=1, le=86400)
     copernicus_tides_minimum_consecutive_samples: int = Field(default=3, ge=3, le=12)
@@ -242,25 +259,15 @@ class Settings(BaseSettings):
     ecmwf_wind_calm_threshold_mps: float = Field(default=0.001, ge=0, le=1)
     ecmwf_wind_max_horizon_hours: int = Field(default=360, ge=144, le=360)
     ecmwf_wind_cycle_cache_ttl_seconds: int = Field(default=900, ge=1, le=86400)
-    ecmwf_wind_cycle_stale_ttl_seconds: int = Field(
-        default=3600, ge=1, le=172800
-    )
-    ecmwf_wind_field_cache_ttl_seconds: int = Field(
-        default=3600, ge=1, le=86400
-    )
+    ecmwf_wind_cycle_stale_ttl_seconds: int = Field(default=3600, ge=1, le=172800)
+    ecmwf_wind_field_cache_ttl_seconds: int = Field(default=3600, ge=1, le=86400)
     ecmwf_wind_field_cache_max_entries: int = Field(default=3, ge=1, le=12)
     ecmwf_wind_field_cache_max_bytes: int = Field(
         default=67108864, ge=1048576, le=536870912
     )
-    ecmwf_wind_point_cache_ttl_seconds: int = Field(
-        default=3600, ge=1, le=86400
-    )
-    ecmwf_wind_point_stale_ttl_seconds: int = Field(
-        default=21600, ge=1, le=604800
-    )
-    ecmwf_wind_max_stale_cycle_age_hours: float = Field(
-        default=24.0, gt=0, le=72
-    )
+    ecmwf_wind_point_cache_ttl_seconds: int = Field(default=3600, ge=1, le=86400)
+    ecmwf_wind_point_stale_ttl_seconds: int = Field(default=21600, ge=1, le=604800)
+    ecmwf_wind_max_stale_cycle_age_hours: float = Field(default=24.0, gt=0, le=72)
     ecmwf_wind_max_download_bytes: int = Field(
         default=10485760, ge=1048576, le=104857600
     )
@@ -298,9 +305,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def redis_configuration_is_complete(self) -> "Settings":
         if self.redis_enabled and not (self.redis_url or "").strip():
-            raise ValueError(
-                "REDIS_URL is required when REDIS_ENABLED=true"
-            )
+            raise ValueError("REDIS_URL is required when REDIS_ENABLED=true")
         return self
 
     @model_validator(mode="after")
@@ -309,8 +314,23 @@ class Settings(BaseSettings):
             self.database_url is None
             or not self.database_url.get_secret_value().strip()
         ):
+            raise ValueError("DATABASE_URL is required when DATABASE_ENABLED=true")
+        return self
+
+    @model_validator(mode="after")
+    def assistant_configuration_is_complete(self) -> "Settings":
+        if self.assistant_enabled and not self.database_enabled:
             raise ValueError(
-                "DATABASE_URL is required when DATABASE_ENABLED=true"
+                "DATABASE_ENABLED=true is required when ASSISTANT_ENABLED=true"
+            )
+        if self.assistant_gemini_routing_enabled and not self.assistant_enabled:
+            raise ValueError("ASSISTANT_ENABLED=true is required for Gemini routing")
+        if self.assistant_gemini_routing_enabled and (
+            self.google_api_key is None
+            or not self.google_api_key.get_secret_value().strip()
+        ):
+            raise ValueError(
+                "GOOGLE_API_KEY is required when Gemini routing is enabled"
             )
         return self
 
@@ -386,10 +406,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def chlorophyll_cache_windows_are_ordered(self) -> "Settings":
-        if (
-            self.chlorophyll_max_stale_seconds
-            < self.chlorophyll_cache_ttl_seconds
-        ):
+        if self.chlorophyll_max_stale_seconds < self.chlorophyll_cache_ttl_seconds:
             raise ValueError(
                 "CHLOROPHYLL_MAX_STALE_SECONDS must be greater than or equal "
                 "to CHLOROPHYLL_CACHE_TTL_SECONDS"
@@ -410,7 +427,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def tide_cache_windows_are_ordered(self) -> "Settings":
-        if self.copernicus_tides_stale_ttl_seconds < self.copernicus_tides_cache_ttl_seconds:
+        if (
+            self.copernicus_tides_stale_ttl_seconds
+            < self.copernicus_tides_cache_ttl_seconds
+        ):
             raise ValueError(
                 "COPERNICUS_TIDES_STALE_TTL_SECONDS must be greater than or equal to COPERNICUS_TIDES_CACHE_TTL_SECONDS"
             )
@@ -434,10 +454,7 @@ class Settings(BaseSettings):
             or self.ecmwf_wind_v_parameter != "10v"
         ):
             raise ValueError("Unsupported ECMWF IFS wind configuration")
-        if (
-            self.ecmwf_wind_retry_max_seconds
-            < self.ecmwf_wind_retry_initial_seconds
-        ):
+        if self.ecmwf_wind_retry_max_seconds < self.ecmwf_wind_retry_initial_seconds:
             raise ValueError("ECMWF retry maximum must not be less than initial")
         if (
             self.ecmwf_wind_cycle_stale_ttl_seconds

@@ -29,6 +29,8 @@ database = [
 agents = [
   "langgraph==1.2.11",
   "langchain-core==1.6.2",
+  "langchain-google-genai==4.4.0",
+  "google-genai==2.22.0",
 ]
 test = [
   "pytest>=8.3",

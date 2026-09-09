@@ -25,6 +25,10 @@ class BlockOptionalPackages(importlib.abc.MetaPathFinder):
             or fullname.startswith("sqlalchemy.")
             or fullname == "alembic"
             or fullname.startswith("alembic.")
+            or fullname == "langgraph"
+            or fullname.startswith("langgraph.")
+            or fullname == "langchain_google_genai"
+            or fullname.startswith("langchain_google_genai.")
             or fullname == "sqlalchemy"
             or fullname.startswith("sqlalchemy.")
             or fullname == "alembic"
@@ -47,6 +51,9 @@ async def verify_startup():
         assert "eccodes" not in sys.modules
         assert "sqlalchemy" not in sys.modules
         assert "alembic" not in sys.modules
+        assert "langgraph" not in sys.modules
+        assert "langchain_google_genai" not in sys.modules
+        assert app.state.assistant_service is None
         assert app.state.database_manager is None
         assert "sqlalchemy" not in sys.modules
         assert "alembic" not in sys.modules
@@ -72,6 +79,8 @@ asyncio.run(verify_startup())
     environment = os.environ.copy()
     environment.pop("DATABASE_URL", None)
     environment["DATABASE_ENABLED"] = "false"
+    environment["ASSISTANT_ENABLED"] = "false"
+    environment["ASSISTANT_GEMINI_ROUTING_ENABLED"] = "false"
     environment.pop("REDIS_URL", None)
     environment["REDIS_ENABLED"] = "false"
     environment["DATABASE_ENABLED"] = "false"
@@ -90,7 +99,51 @@ asyncio.run(verify_startup())
     assert result.returncode == 0, result.stderr
 
 
-def test_snapshot_startup_is_lazy_and_combined_sst_remains_direct(tmp_path: Path) -> None:
+def test_assistant_wiring_starts_without_database_or_model_calls(tmp_path: Path) -> None:
+    script = r"""
+import asyncio
+from app.main import app
+
+async def verify_startup():
+    async with app.router.lifespan_context(app):
+        assert app.state.database_manager is not None
+        assert app.state.assistant_service is not None
+        assert app.state.assistant_service.model is None
+
+asyncio.run(verify_startup())
+"""
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DATABASE_ENABLED": "true",
+            "DATABASE_URL": "postgresql+asyncpg://user:placeholder@127.0.0.1:5432/orca",
+            "ASSISTANT_ENABLED": "true",
+            "ASSISTANT_GEMINI_ROUTING_ENABLED": "false",
+            "REDIS_ENABLED": "false",
+            "COPERNICUS_SST_ENABLED": "false",
+            "COPERNICUS_WAVES_ENABLED": "false",
+            "COPERNICUS_WIND_ENABLED": "false",
+            "ECMWF_WIND_ENABLED": "false",
+            "CHLOROPHYLL_ENABLED": "false",
+            "COPERNICUS_CURRENTS_ENABLED": "false",
+            "COPERNICUS_TIDES_ENABLED": "false",
+        }
+    )
+    environment.pop("GOOGLE_API_KEY", None)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_snapshot_startup_is_lazy_and_combined_sst_remains_direct(
+    tmp_path: Path,
+) -> None:
     script = r"""
 import asyncio
 import importlib.abc
@@ -117,22 +170,28 @@ async def verify():
 asyncio.run(verify())
 """
     environment = os.environ.copy()
-    environment.update({
-        "REDIS_ENABLED": "false",
-        "COPERNICUS_SST_ENABLED": "true",
-        "MARINE_SNAPSHOTS_ENABLED": "true",
-        "MARINE_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
-        "MARINE_SNAPSHOT_PREWARM_POINTS_JSON": "[]",
-        "COPERNICUS_WAVES_ENABLED": "false",
-        "COPERNICUS_WIND_ENABLED": "false",
-        "CHLOROPHYLL_ENABLED": "false",
-        "COPERNICUS_CURRENTS_ENABLED": "false",
-        "COPERNICUS_TIDES_ENABLED": "false",
-        "ECMWF_WIND_ENABLED": "false",
-    })
+    environment.update(
+        {
+            "REDIS_ENABLED": "false",
+            "COPERNICUS_SST_ENABLED": "true",
+            "MARINE_SNAPSHOTS_ENABLED": "true",
+            "MARINE_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
+            "MARINE_SNAPSHOT_PREWARM_POINTS_JSON": "[]",
+            "COPERNICUS_WAVES_ENABLED": "false",
+            "COPERNICUS_WIND_ENABLED": "false",
+            "CHLOROPHYLL_ENABLED": "false",
+            "COPERNICUS_CURRENTS_ENABLED": "false",
+            "COPERNICUS_TIDES_ENABLED": "false",
+            "ECMWF_WIND_ENABLED": "false",
+        }
+    )
     result = subprocess.run(
-        [sys.executable, "-c", script], cwd=tmp_path, env=environment,
-        capture_output=True, text=True, check=False,
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
 
@@ -169,28 +228,36 @@ async def verify():
 asyncio.run(verify())
 """
     environment = os.environ.copy()
-    environment.update({
-        "REDIS_ENABLED": "false",
-        "COPERNICUS_SST_ENABLED": "false",
-        "CHLOROPHYLL_ENABLED": "true",
-        "MARINE_SNAPSHOTS_ENABLED": "true",
-        "CHLOROPHYLL_SNAPSHOTS_ENABLED": "true",
-        "CHLOROPHYLL_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
-        "MARINE_SNAPSHOT_PREWARM_POINTS_JSON": "[]",
-        "COPERNICUS_WAVES_ENABLED": "false",
-        "COPERNICUS_WIND_ENABLED": "false",
-        "COPERNICUS_CURRENTS_ENABLED": "false",
-        "COPERNICUS_TIDES_ENABLED": "false",
-        "ECMWF_WIND_ENABLED": "false",
-    })
+    environment.update(
+        {
+            "REDIS_ENABLED": "false",
+            "COPERNICUS_SST_ENABLED": "false",
+            "CHLOROPHYLL_ENABLED": "true",
+            "MARINE_SNAPSHOTS_ENABLED": "true",
+            "CHLOROPHYLL_SNAPSHOTS_ENABLED": "true",
+            "CHLOROPHYLL_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
+            "MARINE_SNAPSHOT_PREWARM_POINTS_JSON": "[]",
+            "COPERNICUS_WAVES_ENABLED": "false",
+            "COPERNICUS_WIND_ENABLED": "false",
+            "COPERNICUS_CURRENTS_ENABLED": "false",
+            "COPERNICUS_TIDES_ENABLED": "false",
+            "ECMWF_WIND_ENABLED": "false",
+        }
+    )
     result = subprocess.run(
-        [sys.executable, "-c", script], cwd=tmp_path, env=environment,
-        capture_output=True, text=True, check=False,
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
 
 
-def test_sst_and_chlorophyll_snapshots_share_store_and_job_limit(tmp_path: Path) -> None:
+def test_sst_and_chlorophyll_snapshots_share_store_and_job_limit(
+    tmp_path: Path,
+) -> None:
     script = r"""
 import asyncio
 from app.main import app
@@ -206,24 +273,30 @@ async def verify():
 asyncio.run(verify())
 """
     environment = os.environ.copy()
-    environment.update({
-        "REDIS_ENABLED": "false",
-        "COPERNICUS_SST_ENABLED": "true",
-        "CHLOROPHYLL_ENABLED": "true",
-        "MARINE_SNAPSHOTS_ENABLED": "true",
-        "CHLOROPHYLL_SNAPSHOTS_ENABLED": "true",
-        "MARINE_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
-        "CHLOROPHYLL_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
-        "MARINE_SNAPSHOT_PREWARM_POINTS_JSON": "[]",
-        "COPERNICUS_WAVES_ENABLED": "false",
-        "COPERNICUS_WIND_ENABLED": "false",
-        "COPERNICUS_CURRENTS_ENABLED": "false",
-        "COPERNICUS_TIDES_ENABLED": "false",
-        "ECMWF_WIND_ENABLED": "false",
-    })
+    environment.update(
+        {
+            "REDIS_ENABLED": "false",
+            "COPERNICUS_SST_ENABLED": "true",
+            "CHLOROPHYLL_ENABLED": "true",
+            "MARINE_SNAPSHOTS_ENABLED": "true",
+            "CHLOROPHYLL_SNAPSHOTS_ENABLED": "true",
+            "MARINE_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
+            "CHLOROPHYLL_SNAPSHOT_STARTUP_WARM_ENABLED": "false",
+            "MARINE_SNAPSHOT_PREWARM_POINTS_JSON": "[]",
+            "COPERNICUS_WAVES_ENABLED": "false",
+            "COPERNICUS_WIND_ENABLED": "false",
+            "COPERNICUS_CURRENTS_ENABLED": "false",
+            "COPERNICUS_TIDES_ENABLED": "false",
+            "ECMWF_WIND_ENABLED": "false",
+        }
+    )
     result = subprocess.run(
-        [sys.executable, "-c", script], cwd=tmp_path, env=environment,
-        capture_output=True, text=True, check=False,
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
 
@@ -480,7 +553,9 @@ with TestClient(app) as client:
     assert result.returncode == 0, result.stderr
 
 
-def test_enabled_currents_missing_optional_package_is_controlled(tmp_path: Path) -> None:
+def test_enabled_currents_missing_optional_package_is_controlled(
+    tmp_path: Path,
+) -> None:
     script = r"""
 import importlib.abc
 import sys
@@ -502,14 +577,26 @@ with TestClient(app) as client:
     assert response.json()["detail"]["code"] == "CURRENT_DEPENDENCY_MISSING"
 """
     environment = os.environ.copy()
-    environment.update({
-        "COPERNICUS_SST_ENABLED":"false", "COPERNICUS_WAVES_ENABLED":"false",
-        "COPERNICUS_WIND_ENABLED":"false", "ECMWF_WIND_ENABLED":"false",
-        "CHLOROPHYLL_ENABLED":"false", "COPERNICUS_CURRENTS_ENABLED":"true",
-        "COPERNICUS_TIDES_ENABLED":"false",
-        "REDIS_ENABLED":"false",
-    })
-    result = subprocess.run([sys.executable,"-c",script],cwd=tmp_path,env=environment,capture_output=True,text=True,check=False)
+    environment.update(
+        {
+            "COPERNICUS_SST_ENABLED": "false",
+            "COPERNICUS_WAVES_ENABLED": "false",
+            "COPERNICUS_WIND_ENABLED": "false",
+            "ECMWF_WIND_ENABLED": "false",
+            "CHLOROPHYLL_ENABLED": "false",
+            "COPERNICUS_CURRENTS_ENABLED": "true",
+            "COPERNICUS_TIDES_ENABLED": "false",
+            "REDIS_ENABLED": "false",
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode == 0, result.stderr
 
 
@@ -536,15 +623,29 @@ with TestClient(app) as client:
     assert response.status_code==503
     assert response.json()["detail"]["code"]=="TIDE_DEPENDENCY_MISSING"
 """
-    environment=os.environ.copy()
-    environment.update({
-        "COPERNICUS_SST_ENABLED":"false","COPERNICUS_WAVES_ENABLED":"false",
-        "COPERNICUS_WIND_ENABLED":"false","ECMWF_WIND_ENABLED":"false",
-        "CHLOROPHYLL_ENABLED":"false","COPERNICUS_CURRENTS_ENABLED":"false",
-        "COPERNICUS_TIDES_ENABLED":"true","REDIS_ENABLED":"false",
-    })
-    result=subprocess.run([sys.executable,"-c",script],cwd=tmp_path,env=environment,capture_output=True,text=True,check=False)
-    assert result.returncode==0,result.stderr
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "COPERNICUS_SST_ENABLED": "false",
+            "COPERNICUS_WAVES_ENABLED": "false",
+            "COPERNICUS_WIND_ENABLED": "false",
+            "ECMWF_WIND_ENABLED": "false",
+            "CHLOROPHYLL_ENABLED": "false",
+            "COPERNICUS_CURRENTS_ENABLED": "false",
+            "COPERNICUS_TIDES_ENABLED": "true",
+            "REDIS_ENABLED": "false",
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
 
 def test_global_app_diagnostics_are_disabled_by_default() -> None:
     from app.core.config import Settings

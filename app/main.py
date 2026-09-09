@@ -74,7 +74,9 @@ settings = get_settings()
 
 
 def _measured(
-    target, phases: dict[str, str], enabled: bool,
+    target,
+    phases: dict[str, str],
+    enabled: bool,
     semaphore: asyncio.Semaphore | None = None,
 ):
     return InstrumentedAsyncProxy(target, phases, semaphore) if enabled else target
@@ -97,9 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             database_manager = DatabaseSessionManager(settings)
         except (ImportError, ValueError):
-            raise RuntimeError(
-                "DATABASE_STARTUP_CONFIGURATION_FAILED"
-            ) from None
+            raise RuntimeError("DATABASE_STARTUP_CONFIGURATION_FAILED") from None
     app.state.database_manager = database_manager
 
     diagnostics_enabled = bool(
@@ -182,14 +182,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             period_variable=settings.copernicus_waves_period_variable,
             direction_variable=settings.copernicus_waves_direction_variable,
             search_radius_km=settings.copernicus_waves_search_radius_km,
-            time_tolerance_hours=(
-                settings.copernicus_waves_time_tolerance_hours
-            ),
+            time_tolerance_hours=(settings.copernicus_waves_time_tolerance_hours),
             fresh_ttl_seconds=settings.copernicus_waves_cache_ttl_seconds,
             stale_ttl_seconds=settings.copernicus_waves_stale_ttl_seconds,
-            cycle_ttl_seconds=(
-                settings.copernicus_waves_cycle_cache_ttl_seconds
-            ),
+            cycle_ttl_seconds=(settings.copernicus_waves_cycle_cache_ttl_seconds),
         )
         wave_source = CopernicusWaveMarineSource(wave_service)
         app.state.wave_service = wave_service
@@ -236,13 +232,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             fresh_ttl_seconds=settings.chlorophyll_cache_ttl_seconds,
             max_stale_seconds=settings.chlorophyll_max_stale_seconds,
             freshness_hours=settings.chlorophyll_freshness_hours,
-            high_uncertainty_percent=(
-                settings.chlorophyll_high_uncertainty_percent
-            ),
+            high_uncertainty_percent=(settings.chlorophyll_high_uncertainty_percent),
         )
-        chlorophyll_source = CopernicusChlorophyllMarineSource(
-            chlorophyll_service
-        )
+        chlorophyll_source = CopernicusChlorophyllMarineSource(chlorophyll_service)
         app.state.chlorophyll_service = chlorophyll_service
     else:
         chlorophyll_source = DemoMarineSource(
@@ -287,7 +279,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.sst_snapshot_manager = sst_snapshot_manager
         scheduler = SnapshotScheduler(
             manager=sst_snapshot_manager,
-            points=((point.latitude, point.longitude) for point in settings.marine_snapshot_prewarm_points_json),
+            points=(
+                (point.latitude, point.longitude)
+                for point in settings.marine_snapshot_prewarm_points_json
+            ),
             check_seconds=settings.marine_snapshot_scheduler_check_seconds,
         )
         scheduler.start(warm_immediately=settings.marine_snapshot_startup_warm_enabled)
@@ -312,14 +307,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.chlorophyll_snapshot_manager = chlorophyll_snapshot_manager
         scheduler = SnapshotScheduler(
             manager=chlorophyll_snapshot_manager,
-            points=((point.latitude, point.longitude) for point in settings.marine_snapshot_prewarm_points_json),
+            points=(
+                (point.latitude, point.longitude)
+                for point in settings.marine_snapshot_prewarm_points_json
+            ),
             check_seconds=settings.marine_snapshot_scheduler_check_seconds,
         )
         scheduler.start(
             warm_immediately=settings.chlorophyll_snapshot_startup_warm_enabled
         )
         snapshot_schedulers.append(scheduler)
-    app.state.snapshot_scheduler = snapshot_schedulers[0] if snapshot_schedulers else None
+    app.state.snapshot_scheduler = (
+        snapshot_schedulers[0] if snapshot_schedulers else None
+    )
     app.state.snapshot_schedulers = tuple(snapshot_schedulers)
     app.state.snapshot_job_manager = refresh_jobs
 
@@ -429,16 +429,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 max_bytes=settings.ecmwf_wind_field_cache_max_bytes,
             ),
             primary_source=settings.ecmwf_wind_primary_source,
-            fallback_source=(
-                settings.ecmwf_wind_fallback_source.strip() or None
-            ),
+            fallback_source=(settings.ecmwf_wind_fallback_source.strip() or None),
             cycle_cache_ttl_seconds=settings.ecmwf_wind_cycle_cache_ttl_seconds,
             cycle_stale_ttl_seconds=settings.ecmwf_wind_cycle_stale_ttl_seconds,
             point_cache_ttl_seconds=settings.ecmwf_wind_point_cache_ttl_seconds,
             point_stale_ttl_seconds=settings.ecmwf_wind_point_stale_ttl_seconds,
-            max_stale_cycle_age_hours=(
-                settings.ecmwf_wind_max_stale_cycle_age_hours
-            ),
+            max_stale_cycle_age_hours=(settings.ecmwf_wind_max_stale_cycle_age_hours),
             calm_threshold_mps=settings.ecmwf_wind_calm_threshold_mps,
             max_horizon_hours=settings.ecmwf_wind_max_horizon_hours,
         )
@@ -514,6 +510,53 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         and app.state.assessment_service is not None
         else None
     )
+    app.state.assistant_service = None
+    if settings.assistant_enabled:
+        if database_manager is None:
+            raise RuntimeError("ASSISTANT_PERSISTENCE_CONFIGURATION_FAILED")
+        try:
+            from app.agents.graph import AssistantServices, ORCAAssistantGraph
+            from app.agents.intents import (
+                DeterministicIntentRouter,
+                FallbackIntentRouter,
+                GeminiFunctionIntentRouter,
+            )
+            from app.services.assistant_store import SQLAlchemyAssistantPersistence
+
+            fallback_router = DeterministicIntentRouter()
+            if settings.assistant_gemini_routing_enabled:
+                assert settings.google_api_key is not None
+                router = FallbackIntentRouter(
+                    GeminiFunctionIntentRouter(
+                        api_key=settings.google_api_key,
+                        model=settings.assistant_model,
+                        timeout_seconds=settings.assistant_model_timeout_seconds,
+                    ),
+                    fallback_router,
+                )
+                configured_model = settings.assistant_model
+            else:
+                router = fallback_router
+                configured_model = None
+            app.state.assistant_service = ORCAAssistantGraph(
+                router=router,
+                persistence=SQLAlchemyAssistantPersistence(
+                    database_manager.session_factory
+                ),
+                services=AssistantServices(
+                    pfz_nearest=app.state.pfz_nearest_service,
+                    evidence=app.state.evidence_service,
+                    assessment=app.state.assessment_service,
+                    pfz_journey=app.state.pfz_journey_service,
+                ),
+                model=configured_model,
+                graph_timeout_seconds=settings.assistant_graph_timeout_seconds,
+                max_scientific_service_calls=(
+                    settings.assistant_max_scientific_service_calls
+                ),
+            )
+        except ImportError:
+            raise RuntimeError("ASSISTANT_DEPENDENCY_MISSING") from None
 
     try:
         yield

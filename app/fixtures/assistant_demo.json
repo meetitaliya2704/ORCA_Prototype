@@ -1,0 +1,99 @@
+{
+  "original_retrieval_time": "2026-08-27T12:00:01Z",
+  "created_at": "2026-09-06T12:00:00Z",
+  "intent": "nearest_pfz",
+  "answer": "Demonstration Snapshot: a saved valid PFZ advisory was found near the demonstration origin. The deterministic saved journey outcome was PFZ_AVAILABLE_CAUTION. Destination wave evidence was near the supplied limit, while some supporting evidence was degraded. The displayed line is a reference only; routes, geofences, and official warnings were not evaluated.",
+  "evidence_summary": {
+    "status": "partial",
+    "available_sources": 5,
+    "degraded_sources": 2,
+    "pending_sources": 0,
+    "unavailable_sources": 0,
+    "assessment_outcome": "CAUTION",
+    "evidence_confidence": "DEGRADED",
+    "pfz_status": "PFZ_FOUND"
+  },
+  "sources": [
+    {
+      "source": "pfz",
+      "state": "available",
+      "provider": "INCOIS demonstration fixture",
+      "valid_time": "2026-08-27T18:29:59Z",
+      "freshness": "saved_fixture"
+    },
+    {
+      "source": "sst",
+      "state": "available",
+      "provider": "Copernicus Marine Service",
+      "product_id": "SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001",
+      "dataset_id": "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2",
+      "valid_time": "2026-08-27T00:00:00Z",
+      "freshness": "saved_fixture"
+    },
+    {
+      "source": "chlorophyll",
+      "state": "degraded",
+      "provider": "Copernicus Marine Service",
+      "dataset_id": "cmems_obs-oc_glo_bgc-plankton_nrt_l4-gapfree-multi-4km_P1D",
+      "valid_time": "2026-08-26T00:00:00Z",
+      "freshness": "saved_fixture"
+    },
+    {
+      "source": "waves",
+      "state": "available",
+      "provider": "Copernicus Marine",
+      "product_id": "GLOBAL_ANALYSISFORECAST_WAV_001_027",
+      "dataset_id": "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i",
+      "valid_time": "2026-08-27T12:00:00Z",
+      "freshness": "saved_fixture"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "DEMONSTRATION_DATA_NOT_LIVE",
+      "message": "This is a saved demonstration snapshot and is not live data."
+    },
+    {
+      "code": "OFFICIAL_WARNINGS_NOT_INTEGRATED",
+      "message": "Official meteorological and maritime warnings are not integrated. Verify current authority-issued advisories independently."
+    },
+    {
+      "code": "ROUTE_NOT_EVALUATED",
+      "message": "The reference line is not an evaluated or navigable route."
+    }
+  ],
+  "geojson": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [72.9, 20.5]},
+        "properties": {"feature_type": "origin"}
+      },
+      {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [72.68, 20.72]},
+        "properties": {
+          "feature_type": "pfz_destination",
+          "sector_code": "DEMO-SECTOR",
+          "region_name": "Demonstration Gujarat Region",
+          "landing_centre": "Demonstration Landing Centre"
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [[72.9, 20.5], [72.68, 20.72]]
+        },
+        "properties": {
+          "feature_type": "reference_line",
+          "label": "reference_line_not_evaluated_route",
+          "navigable_route": false,
+          "route_evaluated": false,
+          "geofences_evaluated": false
+        }
+      }
+    ]
+  }
+}
