@@ -13,6 +13,8 @@ import type { EvidenceReference } from "@/lib/schemas/assistant";
 import type { AssistantContextValues, AssistantLanguage } from "@/lib/schemas/assistant-api";
 import type { JourneyResponse } from "@/lib/schemas/journey";
 
+import { useUserMode } from "@/lib/context";
+
 const languages: { value: AssistantLanguage; label: string }[] = [
   { value: "en", label: "English" },
   { value: "hi", label: "हिन्दी (Hindi)" },
@@ -35,12 +37,14 @@ const defaultContext: AssistantContextValues = {
 
 export default function ChatWindow() {
   const router = useRouter();
+  const { user } = useUserMode();
+  const userId = user?.email || user?.name || "guest";
   const [language, setLanguage] = useState<AssistantLanguage>("en");
   const [assistantContext, setAssistantContext] = useState<AssistantContextValues>(defaultContext);
   const [contextOpen, setContextOpen] = useState(false);
   const [selectedResult, setSelectedResult] = useState<JourneyResponse | null>(null);
 
-  const assistant = useAssistant(publicConfig.assistantMode, language, assistantContext);
+  const assistant = useAssistant(publicConfig.assistantMode, language, assistantContext, userId);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -49,7 +53,7 @@ export default function ChatWindow() {
   const handleResultSelect = (result: JourneyResponse) => {
     setSelectedResult(result);
     try {
-      localStorage.setItem("orca_active_spatial_result", JSON.stringify(result));
+      sessionStorage.setItem("orca_active_spatial_result", JSON.stringify(result));
     } catch {
       // Ignore storage failures
     }

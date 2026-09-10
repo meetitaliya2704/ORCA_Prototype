@@ -38,6 +38,12 @@ export function AssistantResultPanel({ response }: { response: AssistantApiRespo
   </Card>;
 
   const destination = findDestination(response);
+  const marineKeys = Object.keys(sourceLabels) as (keyof typeof sourceLabels)[];
+  const usableMarineCount = marineKeys.filter((source) => {
+    const item = response.sources.find((candidate) => candidate.source === source);
+    return item?.state === "available" || item?.state === "degraded";
+  }).length;
+
   return <div className="space-y-3" aria-live="polite">
     <Card className="overflow-hidden">
       <div className="h-1 bg-[var(--secondary)]" aria-hidden="true" />
@@ -60,8 +66,9 @@ export function AssistantResultPanel({ response }: { response: AssistantApiRespo
     </Card>
 
     {destination && <Card className="overflow-hidden">
-      <CardHeader><h3 className="flex items-center gap-2 font-bold"><Anchor aria-hidden="true" className="size-4 text-[var(--secondary)]" />PFZ destination</h3></CardHeader>
-      <CardContent><dl className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+      <div className="h-1 bg-[var(--primary)]" aria-hidden="true" />
+      <CardHeader><div className="flex items-center gap-2"><Anchor aria-hidden="true" className="size-4 text-[var(--primary)]" /><h3 className="font-bold">INCOIS PFZ Destination</h3></div></CardHeader>
+      <CardContent><dl className="grid min-w-0 gap-2 sm:grid-cols-2">
         <Metric label="Landing centre" value={destination.landingCentre ?? "Not supplied"} />
         <Metric label="Region" value={destination.region ?? "Not supplied"} />
         <Metric label="Coordinates" value={`${destination.latitude.toFixed(4)}, ${destination.longitude.toFixed(4)}`} mono />
@@ -70,9 +77,9 @@ export function AssistantResultPanel({ response }: { response: AssistantApiRespo
     </Card>}
 
     <Card className="overflow-hidden">
-      <CardHeader><div className="flex items-center justify-between gap-3"><h3 className="flex items-center gap-2 font-bold"><Database aria-hidden="true" className="size-4 text-[var(--secondary)]" />Marine evidence summary</h3><span className="text-xs text-[var(--muted-foreground)]">{response.evidence_summary.available_sources + response.evidence_summary.degraded_sources} usable</span></div></CardHeader>
+      <CardHeader><div className="flex items-center justify-between gap-3"><h3 className="flex items-center gap-2 font-bold"><Database aria-hidden="true" className="size-4 text-[var(--secondary)]" />Marine evidence summary</h3><span className="text-xs text-[var(--muted-foreground)]">{usableMarineCount} usable</span></div></CardHeader>
       <CardContent className="grid min-w-0 gap-2 sm:grid-cols-2">
-        {(Object.keys(sourceLabels) as (keyof typeof sourceLabels)[]).map((source) => {
+        {marineKeys.map((source) => {
           const item = response.sources.find((candidate) => candidate.source === source);
           const Icon = item?.state === "available" ? CheckCircle2 : item?.state === "degraded" ? AlertTriangle : CircleHelp;
           return <article key={source} className="min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-3">
@@ -89,10 +96,39 @@ export function AssistantResultPanel({ response }: { response: AssistantApiRespo
       </CardContent>
     </Card>
 
-    {response.warnings.length > 0 && <Card className="overflow-hidden border-[var(--caution-border)]">
-      <CardHeader><h3 className="flex items-center gap-2 font-bold"><AlertTriangle aria-hidden="true" className="size-4 text-[var(--caution)]" />Warnings and limitations</h3></CardHeader>
-      <CardContent><ul className="space-y-2 min-w-0 text-sm">{response.warnings.map((warning) => <li key={warning.code} className="flex min-w-0 gap-2 overflow-hidden"><span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-[var(--caution)]" /><span className="long-token min-w-0 flex-1 break-words"><strong className="font-data text-xs break-all">{warning.code}</strong><br /><span className="break-words">{warning.message}</span></span></li>)}</ul></CardContent>
-    </Card>}
+    {(() => {
+      const visibleWarnings = response.warnings.filter(
+        (warning) =>
+          !warning.code.toLowerCase().includes("router") &&
+          !warning.message.toLowerCase().includes("gemini intent routing") &&
+          !warning.message.toLowerCase().includes("deterministic router was used")
+      );
+      if (visibleWarnings.length === 0) return null;
+      return (
+        <Card className="overflow-hidden border-[var(--caution-border)]">
+          <CardHeader>
+            <h3 className="flex items-center gap-2 font-bold">
+              <AlertTriangle aria-hidden="true" className="size-4 text-[var(--caution)]" />
+              Warnings and limitations
+            </h3>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 min-w-0 text-sm">
+              {visibleWarnings.map((warning) => (
+                <li key={warning.code} className="flex min-w-0 gap-2 overflow-hidden">
+                  <span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-[var(--caution)]" />
+                  <span className="long-token min-w-0 flex-1 break-words">
+                    <strong className="font-data text-xs break-all">{warning.code}</strong>
+                    <br />
+                    <span className="break-words">{warning.message}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      );
+    })()}
 
   </div>;
 }

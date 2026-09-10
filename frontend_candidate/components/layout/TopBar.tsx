@@ -6,7 +6,7 @@ export default function TopBar() {
   return (
     <header className="h-16 border-b border-border bg-surface/60 backdrop-blur flex items-center justify-between px-4 md:px-6 shrink-0">
       <div className="flex items-center gap-2 md:hidden">
-        <span className="font-display font-bold text-lg text-cyan uppercase tracking-wider">ocenix</span>
+        <span className="font-display font-bold text-lg text-cyan tracking-wide">Oceanix</span>
       </div>
 
       <div className="hidden sm:flex items-center gap-2 bg-surface-light border border-border rounded-lg px-3 py-1.5 w-full max-w-xs">

@@ -67,7 +67,7 @@ export default function CapabilitiesPage() {
           Everything You Need to <span className="text-cyan">See Beyond the Surface</span>
         </h1>
         <p className="text-text-muted text-sm sm:text-base leading-relaxed">
-          ocenix pairs a collaborative network of autonomous AI agents with live oceanographic data to
+          Oceanix pairs a collaborative network of autonomous AI agents with live oceanographic data to
           deliver instant, verifiable maritime decisions for every coastal stakeholder.
         </p>
       </div>

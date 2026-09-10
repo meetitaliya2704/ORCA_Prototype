@@ -21,12 +21,6 @@ import type {
 import type { JourneyResponse } from "@/lib/schemas/journey";
 
 const parsedFixture = demonstrationConversationSchema.safeParse(demoConversationJson);
-const STORAGE_KEY_SESSIONS = "orca_conversation_sessions";
-const STORAGE_KEY_ACTIVE_SESSION = "orca_active_session_id";
-const STORAGE_KEY_MESSAGES = "orca_assistant_messages";
-const STORAGE_KEY_CONV_ID = "orca_assistant_conversation_id";
-const STORAGE_KEY_RESPONSE = "orca_assistant_latest_response";
-
 export interface ConversationSession {
   id: string;
   title: string;
@@ -41,7 +35,15 @@ export function useAssistant(
   mode: AssistantMode,
   language: AssistantLanguage,
   context: AssistantContextValues,
+  userId: string = "guest",
 ) {
+  const userPrefix = useMemo(() => encodeURIComponent(userId.trim() || "guest"), [userId]);
+  const KEY_SESSIONS = `orca_${userPrefix}_sessions`;
+  const KEY_ACTIVE_SESSION = `orca_${userPrefix}_active_session_id`;
+  const KEY_MESSAGES = `orca_${userPrefix}_messages`;
+  const KEY_CONV_ID = `orca_${userPrefix}_conv_id`;
+  const KEY_RESPONSE = `orca_${userPrefix}_response`;
+
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => "session-initial");
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -57,7 +59,7 @@ export function useAssistant(
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const rawSessions = localStorage.getItem(STORAGE_KEY_SESSIONS);
+      const rawSessions = sessionStorage.getItem(KEY_SESSIONS);
       let loadedSessions: ConversationSession[] = [];
       if (rawSessions) {
         const parsed = JSON.parse(rawSessions);
@@ -66,43 +68,28 @@ export function useAssistant(
         }
       }
 
-      if (loadedSessions.length === 0) {
-        const savedMessages = localStorage.getItem(STORAGE_KEY_MESSAGES);
-        if (savedMessages) {
-          const parsed = JSON.parse(savedMessages);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const savedConvId = localStorage.getItem(STORAGE_KEY_CONV_ID);
-            const savedResponse = localStorage.getItem(STORAGE_KEY_RESPONSE);
-            const firstMsg = parsed.find((m: AssistantMessage) => m.role === "user");
-            const legacySession: ConversationSession = {
-              id: `session-${Date.now()}`,
-              title: firstMsg ? firstMsg.content.slice(0, 36) : "Conversation",
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              messages: parsed,
-              conversationId: savedConvId ?? null,
-              latestResponse: savedResponse ? JSON.parse(savedResponse) : null,
-            };
-            loadedSessions = [legacySession];
-          }
-        }
-      }
-
       if (loadedSessions.length > 0) {
         setSessions(loadedSessions);
-        const savedActiveId = localStorage.getItem(STORAGE_KEY_ACTIVE_SESSION);
+        const savedActiveId = sessionStorage.getItem(KEY_ACTIVE_SESSION);
         const active = loadedSessions.find((s) => s.id === savedActiveId) || loadedSessions[0];
         setActiveSessionId(active.id);
         setMessages(active.messages);
         setConversationId(active.conversationId);
         setLatestResponse(active.latestResponse);
+      } else {
+        const newSessionId = `session-${Date.now()}`;
+        setSessions([]);
+        setActiveSessionId(newSessionId);
+        setMessages([]);
+        setConversationId(null);
+        setLatestResponse(null);
       }
     } catch {
       // Storage read failed safely
     } finally {
       isHydrated.current = true;
     }
-  }, []);
+  }, [KEY_SESSIONS, KEY_ACTIVE_SESSION]);
 
   useEffect(() => {
     if (!isHydrated.current || typeof window === "undefined") return;
@@ -141,29 +128,29 @@ export function useAssistant(
             ...prevSessions,
           ];
         }
-        localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(updated));
-        localStorage.setItem(STORAGE_KEY_ACTIVE_SESSION, activeSessionId);
+        sessionStorage.setItem(KEY_SESSIONS, JSON.stringify(updated));
+        sessionStorage.setItem(KEY_ACTIVE_SESSION, activeSessionId);
         if (messages.length > 0) {
-          localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(messages));
+          sessionStorage.setItem(KEY_MESSAGES, JSON.stringify(messages));
         } else {
-          localStorage.removeItem(STORAGE_KEY_MESSAGES);
+          sessionStorage.removeItem(KEY_MESSAGES);
         }
         if (conversationId) {
-          localStorage.setItem(STORAGE_KEY_CONV_ID, conversationId);
+          sessionStorage.setItem(KEY_CONV_ID, conversationId);
         } else {
-          localStorage.removeItem(STORAGE_KEY_CONV_ID);
+          sessionStorage.removeItem(KEY_CONV_ID);
         }
         if (latestResponse) {
-          localStorage.setItem(STORAGE_KEY_RESPONSE, JSON.stringify(latestResponse));
+          sessionStorage.setItem(KEY_RESPONSE, JSON.stringify(latestResponse));
         } else {
-          localStorage.removeItem(STORAGE_KEY_RESPONSE);
+          sessionStorage.removeItem(KEY_RESPONSE);
         }
         return updated;
       });
     } catch {
       // Storage write failed safely
     }
-  }, [activeSessionId, messages, conversationId, latestResponse]);
+  }, [activeSessionId, messages, conversationId, latestResponse, KEY_SESSIONS, KEY_ACTIVE_SESSION, KEY_MESSAGES, KEY_CONV_ID, KEY_RESPONSE]);
 
   const transport = useMemo(() => {
     if (mode === "live") return new HttpAssistantTransport();
@@ -318,15 +305,15 @@ export function useAssistant(
     lastRequest.current = null;
     if (typeof window !== "undefined") {
       try {
-        localStorage.setItem(STORAGE_KEY_ACTIVE_SESSION, newSessionId);
-        localStorage.removeItem(STORAGE_KEY_MESSAGES);
-        localStorage.removeItem(STORAGE_KEY_CONV_ID);
-        localStorage.removeItem(STORAGE_KEY_RESPONSE);
+        sessionStorage.setItem(KEY_ACTIVE_SESSION, newSessionId);
+        sessionStorage.removeItem(KEY_MESSAGES);
+        sessionStorage.removeItem(KEY_CONV_ID);
+        sessionStorage.removeItem(KEY_RESPONSE);
       } catch {
         // Ignore
       }
     }
-  }, [transport]);
+  }, [transport, KEY_ACTIVE_SESSION, KEY_MESSAGES, KEY_CONV_ID, KEY_RESPONSE]);
 
   const switchSession = useCallback((sessionId: string) => {
     controller.current?.abort();
@@ -342,19 +329,19 @@ export function useAssistant(
     lastRequest.current = null;
     if (typeof window !== "undefined") {
       try {
-        localStorage.setItem(STORAGE_KEY_ACTIVE_SESSION, target.id);
+        sessionStorage.setItem(KEY_ACTIVE_SESSION, target.id);
       } catch {
         // Ignore
       }
     }
-  }, [sessions, transport]);
+  }, [sessions, transport, KEY_ACTIVE_SESSION]);
 
   const deleteSession = useCallback((sessionId: string) => {
     setSessions((prev) => {
       const filtered = prev.filter((s) => s.id !== sessionId);
       if (typeof window !== "undefined") {
         try {
-          localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(filtered));
+          sessionStorage.setItem(KEY_SESSIONS, JSON.stringify(filtered));
         } catch {
           // Ignore
         }
@@ -364,7 +351,7 @@ export function useAssistant(
     if (activeSessionId === sessionId) {
       startNewChat();
     }
-  }, [activeSessionId, startNewChat]);
+  }, [activeSessionId, startNewChat, KEY_SESSIONS]);
 
   const reset = useCallback(() => {
     startNewChat();

@@ -26,15 +26,18 @@ export default function PublicNavbar() {
           <div className="w-9 h-9 rounded-xl bg-cyan/10 border border-cyan/30 flex items-center justify-center overflow-hidden">
             <Image src="/brand/oceanix-logo.png" alt="Oceanix logo" width={36} height={36} className="w-full h-full object-cover object-top scale-125" />
           </div>
-          <span className="font-display font-black text-lg tracking-[0.18em] text-text-primary uppercase">
-            ocenix
+          <span className="font-display font-black text-lg tracking-wide text-text-primary">
+            Oceanix
           </span>
         </Link>
 
         {/* Top Navbar Links (Home, About, Capabilities) */}
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium">
           {navLinks.map((link) => {
-            const isActive = pathname === link.href;
+            const isActive =
+              link.href === "/chat"
+                ? pathname === "/chat" || pathname === "/map" || pathname === "/alerts"
+                : pathname === link.href;
             return (
               <Link
                 key={link.href}
@@ -113,20 +116,39 @@ export default function PublicNavbar() {
             </Link>
           ))}
           <div className="pt-2 border-t border-border/60 flex items-center gap-2">
-            <Link
-              href="/login"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex-1 text-center py-2 rounded-lg bg-surface-light border border-border text-xs font-semibold"
-            >
-              Login
-            </Link>
-            <Link
-              href="/register"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex-1 text-center py-2 rounded-lg bg-cyan text-bg font-bold text-xs"
-            >
-              Register
-            </Link>
+            {isLoggedIn && user ? (
+              <div className="flex items-center justify-between w-full">
+                <span className="text-xs text-text-muted font-medium truncate">
+                  {user.name || user.email}
+                </span>
+                <button
+                  onClick={() => {
+                    logout();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-surface-light hover:bg-surface border border-border text-xs text-text-muted hover:text-avoid transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex-1 text-center py-2 rounded-lg bg-surface-light border border-border text-xs font-semibold"
+                >
+                  Login
+                </Link>
+                <Link
+                  href="/register"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex-1 text-center py-2 rounded-lg bg-cyan text-bg font-bold text-xs"
+                >
+                  Register
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

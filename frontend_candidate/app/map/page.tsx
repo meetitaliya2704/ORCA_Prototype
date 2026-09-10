@@ -18,7 +18,7 @@ export default function MarineMapPage() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("orca_active_spatial_result");
+      const saved = sessionStorage.getItem("orca_active_spatial_result");
       if (saved) {
         setSpatialResult(JSON.parse(saved));
       }
@@ -41,7 +41,7 @@ export default function MarineMapPage() {
       if (response.ok) {
         const data: JourneyResponse = await response.json();
         setSpatialResult(data);
-        localStorage.setItem("orca_active_spatial_result", JSON.stringify(data));
+        sessionStorage.setItem("orca_active_spatial_result", JSON.stringify(data));
       }
     } catch (err) {
       console.error("Failed to fetch live PFZ journey:", err);
@@ -52,7 +52,7 @@ export default function MarineMapPage() {
 
   const handleClearSpatial = () => {
     setSpatialResult(null);
-    localStorage.removeItem("orca_active_spatial_result");
+    sessionStorage.removeItem("orca_active_spatial_result");
   };
 
   const filteredMarkers = mockMapMarkers.filter((m) => {

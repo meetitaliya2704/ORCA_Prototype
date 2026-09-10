@@ -98,6 +98,12 @@ export class HttpAssistantTransport implements AssistantTransport {
         throw new DOMException("Request cancelled", "AbortError");
       }
 
+      data.warnings = data.warnings.filter(
+        (warning) =>
+          !warning.code.toLowerCase().includes("router") &&
+          !warning.message.toLowerCase().includes("gemini intent routing") &&
+          !warning.message.toLowerCase().includes("deterministic router was used"),
+      );
       return { response: data, messages: [assistantResponseToMessage(data)] };
     } finally {
       signal.removeEventListener("abort", relayAbort);
@@ -124,6 +130,14 @@ function assistantResponseToMessage(response: AssistantApiResponse): AssistantMe
         : "unavailable" as const;
   const routingStatus = response.routing_mode === "deterministic_fallback" ? "partial" as const : "complete" as const;
 
+  const filteredWarnings = response.warnings.filter(
+    (warning) =>
+      !warning.code.toLowerCase().includes("router") &&
+      !warning.message.toLowerCase().includes("gemini intent routing") &&
+      !warning.message.toLowerCase().includes("deterministic router was used"),
+  );
+  response.warnings = filteredWarnings;
+
   if (response.completion_status === "clarification_required") {
     return {
       id: response.assistant_message_id,
@@ -134,7 +148,7 @@ function assistantResponseToMessage(response: AssistantApiResponse): AssistantMe
       created_at: response.generated_at,
       missing_fields: response.required_information,
       evidence_references: references,
-      warnings: response.warnings.map((warning) => warning.message),
+      warnings: filteredWarnings.map((warning) => warning.message),
       suggested_actions: ["open_query_context"],
     };
   }
@@ -149,7 +163,7 @@ function assistantResponseToMessage(response: AssistantApiResponse): AssistantMe
     content: response.answer,
     created_at: response.generated_at,
     evidence_references: references,
-    warnings: response.warnings.map((warning) => warning.message),
+    warnings: filteredWarnings.map((warning) => warning.message),
     suggested_actions: [],
     tool_activity: [
       { id: "coordinator", label: "Processing request", status: "complete" },

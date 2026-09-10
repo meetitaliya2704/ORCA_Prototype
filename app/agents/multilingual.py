@@ -368,66 +368,67 @@ def format_marine_conditions_response(
     status_str: str,
     sources_count: int,
 ) -> str:
+    marine_sources_count = 6 if sources_count >= 7 else sources_count
     localized_readings = [translate_marine_reading(r, lang) for r in readings]
     bullet_list = '\n'.join(f'• {r}' for r in localized_readings) if localized_readings else ''
     if not bullet_list:
         if lang == 'hi':
-            return f'समुद्री डेटा संग्रह स्थिति: {status_str}। आधिकारिक नेटवर्क में {sources_count} स्रोत उपलब्ध हैं।'
+            return f'समुद्री डेटा संग्रह स्थिति: {status_str}। आधिकारिक नेटवर्क में {marine_sources_count} स्रोत उपलब्ध हैं।'
         if lang == 'gu':
-            return f'દરિયાઈ ડેટા સંગ્રહ સ્થિતિ: {status_str}。 સત્તાવાર નેટવર્કમાં {sources_count} સ્ત્રોતો ઉપલબ્ધ છે。'
+            return f'દરિયાઈ ડેટા સંગ્રહ સ્થિતિ: {status_str}。 સત્તાવાર નેટવર્કમાં {marine_sources_count} સ્ત્રોતો ઉપલબ્ધ છે。'
         if lang == 'mr':
-            return f'सागरी डेटा संकलन स्थिती: {status_str}। अधिकृत नेटवर्कमध्ये {sources_count} स्त्रोत उपलब्ध आहेत।'
+            return f'सागरी डेटा संकलन स्थिती: {status_str}। अधिकृत नेटवर्कमध्ये {marine_sources_count} स्त्रोत उपलब्ध आहेत।'
         if lang == 'ta':
-            return f'கடல்சார் தரவு நிலை: {status_str}. அதிகாரப்பூர்வ நெட்வொர்க்கில் {sources_count} ஆதாரங்கள் கிடைக்கின்றன.'
+            return f'கடல்சார் தரவு நிலை: {status_str}. அதிகாரப்பூர்வ நெட்வொர்க்கில் {marine_sources_count} ஆதாரங்கள் கிடைக்கின்றன.'
         if lang == 'te':
-            return f'సముద్ర డేటా సేకరణ స్థితి: {status_str}. అధికారిక నెట్‌వర్క్‌లో {sources_count} మూలాలు అందుబాటులో ఉన్నాయి.'
+            return f'సముద్ర డేటా సేకరణ స్థితి: {status_str}. అధికారిక నెట్‌వర్క్‌లో {marine_sources_count} మూలాలు అందుబాటులో ఉన్నాయి.'
         if lang == 'ml':
-            return f'സമുദ്ര വിവര ശേഖരണ നില: {status_str}. ഔദ്യോഗിക ശൃംഖലയിൽ {sources_count} ഉറവിടങ്ങൾ ലഭ്യമാണ്.'
+            return f'സമുദ്ര വിവര ശേഖരണ നില: {status_str}. ഔദ്യോഗിക ശൃംഖലയിൽ {marine_sources_count} ഉറവിടങ്ങൾ ലഭ്യമാണ്.'
         if lang == 'bn':
-            return f'সামুদ্রিক তথ্য সংগ্রহের অবস্থা: {status_str}। অফিসিয়াল নেটওয়ার্কে {sources_count}টি উৎস উপলব্ধ রয়েছে।'
+            return f'সামুদ্রিক তথ্য সংগ্রহের অবস্থা: {status_str}। অফিসিয়াল নেটওয়ার্কে {marine_sources_count}টি উৎস উপলব্ধ রয়েছে।'
         return (
             f'Marine evidence collection is {status_str}. '
-            f'{sources_count} source(s) available across the official observation network.'
+            f'{marine_sources_count} source(s) available across the official observation network.'
         )
 
     if lang == 'hi':
         return (
             f'वर्तमान समुद्री स्थिति:\n{bullet_list}\n\n'
-            f'आधिकारिक अवलोकन नेटवर्क के {sources_count} स्रोतों से डेटा पूर्ण रूप से सत्यापित है।'
+            f'आधिकारिक अवलोकन नेटवर्क के {marine_sources_count} स्रोतों से डेटा पूर्ण रूप से सत्यापित है।'
         )
     if lang == 'gu':
         return (
             f'હાલની દરિયાઈ સ્થિતિ:\n{bullet_list}\n\n'
-            f'સત્તાવાર નિરીક્ષણ નેટવર્કના {sources_count} સ્ત્રોતોમાંથી માહિતી સંપૂર્ણપણે ઉપલબ્ધ છે.'
+            f'સત્તાવાર નિરીક્ષણ નેટવર્કના {marine_sources_count} સ્ત્રોતોમાંથી માહિતી સંપૂર્ણપણે ઉપલબ્ધ છે.'
         )
     if lang == 'mr':
         return (
             f'सध्याची सागरी परिस्थिती:\n{bullet_list}\n\n'
-            f'अधिकृत निरीक्षण नेटवर्कमधील {sources_count} स्त्रोतांकडील माहिती पूर्णपणे उपलब्ध आहे.'
+            f'अधिकृत निरीक्षण नेटवर्कमधील {marine_sources_count} स्त्रोतांकडील माहिती पूर्णपणे उपलब्ध आहे.'
         )
     if lang == 'ta':
         return (
             f'தற்போதைய கடல் நிலை:\n{bullet_list}\n\n'
-            f'அதிகாரப்பூர்வ கண்காணிப்பு நெட்வொர்க்கின் {sources_count} மூலங்களிலிருந்து தரவு முழுமையாக சரிபார்க்கப்பட்டது.'
+            f'அதிகாரப்பூர்வ கண்காணிப்பு நெட்வொர்க்கின் {marine_sources_count} மூலங்களிலிருந்து தரவு முழுமையாக சரிபார்க்கப்பட்டது.'
         )
     if lang == 'te':
         return (
             f'ప్రస్తుత సముద్ర పరిస్థితులు:\n{bullet_list}\n\n'
-            f'అధికారిక పరిశీలన నెట్‌వర్క్ యొక్క {sources_count} మూలాల నుండి డేటా పూర్తిగా అందుబాటులో ఉంది.'
+            f'అధికారిక పరిశీలన నెట్‌వర్క్ యొక్క {marine_sources_count} మూలాల నుండి డేటా పూర్తిగా అందుబాటులో ఉంది.'
         )
     if lang == 'ml':
         return (
             f'നിലവിലെ സമുദ്ര സാഹചര്യങ്ങൾ:\n{bullet_list}\n\n'
-            f'ഔദ്യോഗിക നിരീക്ഷണ ശൃംഖലയുടെ {sources_count} ഉറവിടങ്ങളിൽ നിന്നുള്ള വിവരങ്ങൾ പൂർണ്ണമായി ലഭ്യമാണ്.'
+            f'ഔദ്യോഗിക നിരീക്ഷണ ശൃംഖലയുടെ {marine_sources_count} ഉറവിടങ്ങളിൽ നിന്നുള്ള വിവരങ്ങൾ പൂർണ്ണമായി ലഭ്യമാണ്.'
         )
     if lang == 'bn':
         return (
             f'বর্তমান সামুদ্রিক অবস্থা:\n{bullet_list}\n\n'
-            f'অফিসিয়াল পর্যবেক্ষণ নেটওয়ার্কের {sources_count}টি উৎস থেকে সংগৃহীত প্রমাণ সম্পূর্ণ।'
+            f'অফিসিয়াল পর্যবেক্ষণ নেটওয়ার্কের {marine_sources_count}টি উৎস থেকে সংগৃহীত প্রমাণ সম্পূর্ণ।'
         )
     return (
         f'Current marine conditions at this location:\n{bullet_list}\n\n'
-        f'Evidence status is {status_str} across {sources_count} available official source(s).'
+        f'Evidence status is {status_str} across {marine_sources_count} available official source(s).'
     )
 
 def format_assessment_response(

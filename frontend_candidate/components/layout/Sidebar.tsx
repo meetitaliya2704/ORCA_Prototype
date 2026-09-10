@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { MessageSquareText, Map as MapIcon, Bell } from "lucide-react";
 
@@ -18,13 +17,8 @@ export default function Sidebar() {
     <>
       {/* Desktop / tablet sidebar */}
       <aside className="hidden md:flex md:flex-col w-16 lg:w-56 bg-surface border-r border-border shrink-0">
-        <div className="flex items-center gap-2 px-4 h-16 border-b border-border">
-          <div className="w-7 h-7 rounded-lg overflow-hidden shrink-0">
-            <Image src="/brand/oceanix-logo.png" alt="Oceanix logo" width={28} height={28} className="w-full h-full object-cover object-top scale-125" />
-          </div>
-          <span className="hidden lg:block font-display font-bold text-lg tracking-wide">
-            ocenix
-          </span>
+        <div className="flex items-center gap-2 px-4 h-12 border-b border-border text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          <span className="hidden lg:block">Console Deck</span>
         </div>
 
         <nav className="flex-1 py-4 flex flex-col gap-1 px-2">

@@ -294,7 +294,24 @@ export function AskOrcaPanel({
         {message.kind === "clarification" && <div className="mt-3 min-w-0 rounded-lg bg-[var(--caution-surface)] p-3 text-sm"><strong>Information requested</strong><div className="mt-2 flex flex-wrap gap-2">{message.missing_fields.map((field) => <Badge tone="caution" key={field}>{field.replaceAll("_", " ")}</Badge>)}</div><Button variant="secondary" className="mt-3 w-full" onClick={() => onContextOpenChange(true)}>Add query context</Button></div>}
         {"tool_activity" in message && <ActivityTrace steps={message.tool_activity} demonstration={message.mode === "demonstration"} />}
         <EvidenceChips references={message.evidence_references} onSelect={onEvidenceSelect} />
-        {message.warnings.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-[var(--caution)] min-w-0">{message.warnings.map((warning) => <li className="long-token min-w-0 break-words" key={warning}>{warning}</li>)}</ul>}
+        {(() => {
+          const visibleWarnings = message.warnings.filter(
+            (w) =>
+              !w.toLowerCase().includes("gemini intent routing") &&
+              !w.toLowerCase().includes("router was used") &&
+              !w.toLowerCase().includes("assistant_router")
+          );
+          if (visibleWarnings.length === 0) return null;
+          return (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-[var(--caution)] min-w-0">
+              {visibleWarnings.map((warning) => (
+                <li className="long-token min-w-0 break-words" key={warning}>
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          );
+        })()}
         {message.kind === "deterministic_result" && <Button variant="secondary" className="mt-3 w-full" onClick={() => onResultSelect(message.journey_result)}>Restore this result on map</Button>}
       </article>)}
       {busy && (
