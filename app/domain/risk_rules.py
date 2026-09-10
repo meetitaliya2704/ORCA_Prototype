@@ -18,8 +18,8 @@ from app.schemas.marine import ECMWFWindForecastResponse, WindResponse
 
 
 OFFICIAL_WARNING_NOTICE = (
-    "Official meteorological and maritime warnings are not integrated into this "
-    "prototype. Verify current authority-issued advisories before making "
+    "Official meteorological and maritime warnings are not integrated. "
+    "Verify current authority-issued advisories before making "
     "operational decisions."
 )
 ASSESSMENT_NOTICE = (

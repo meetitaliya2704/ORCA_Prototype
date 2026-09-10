@@ -71,11 +71,7 @@ def required_information_for(
     if location_required and request.latitude is None:
         required.append(RequiredInformation.LOCATION)
     if (
-        intent
-        in {
-            AssistantIntent.MARINE_CONDITIONS,
-            AssistantIntent.OPERATIONAL_CONDITIONS,
-        }
+        intent == AssistantIntent.OPERATIONAL_CONDITIONS
         and request.requested_time is None
     ):
         required.append(RequiredInformation.REQUESTED_TIME)
@@ -122,6 +118,9 @@ class DeterministicIntentRouter:
                 "dataset",
                 "provenance",
                 "evidence support",
+                "explain source",
+                "explain evidence",
+                "data source",
                 "स्रोत",
                 "डेटासेट",
                 "સ્ત્રોત",
@@ -189,9 +188,48 @@ class DeterministicIntentRouter:
             (
                 "pfz",
                 "potential fishing zone",
+                "fishing zone",
+                "fishing area",
+                "nearest pfz",
+                "find pfz",
+                "where to fish",
+                "best fishing",
+                "fish zone",
+                "fish",
+                "fishing",
                 "पीएफजेड",
                 "पीएफ़ज़ेड",
+                "पीएफ़ज़ेड",
+                "पीएफ़जेड",
+                "मछली पकड़ने",
+                "मत्स्य क्षेत्र",
+                "मछली",
                 "પીએફઝેડ",
+                "માછીમારી",
+                "દરિયામાં માછલી",
+                "मासेमारी क्षेत्र",
+                "मासेमारी",
+                "मासे",
+                "पीएफझेड",
+                "மீன்பிடி மண்டலம்",
+                "மீன்பிடி",
+                "மீன் பிடிக்கும்",
+                "பி.எஃப்.இசட்",
+                "பிஎப்இசட்",
+                "చేపల వేట జోన్",
+                "చేపల వేట",
+                "చేపలు",
+                "పి.ఎఫ్.జెడ్",
+                "పిఎఫ్జెడ్",
+                "മത്സ്യബന്ധന മേഖല",
+                "മത്സ്യബന്ധനം",
+                "മീൻപിടുത്തം",
+                "പി.എഫ്.ഇസഡ്",
+                "പിഎഫ്ഇസഡ്",
+                "মাছ ধরার এলাকা",
+                "মাছ ধরার অঞ্চল",
+                "মৎস্য অঞ্চল",
+                "পিএফজেড",
             ),
         ),
         (
@@ -203,8 +241,25 @@ class DeterministicIntentRouter:
                 "within my limit",
                 "safe to venture",
                 "operational condition",
+                "assess limit",
+                "check limit",
+                "operational limit",
                 "जहाज की सीमा",
+                "सीमा",
+                "सुरक्षित",
                 "સીમા ઓળંગે",
+                "મર્યાદા",
+                "સલામત",
+                "मर्यादा",
+                "बोटीची मर्यादा",
+                "வரம்பு",
+                "பாதுகாப்பான",
+                "పరిమితి",
+                "సురక్షితం",
+                "പരിധി",
+                "സുരക്ഷിതം",
+                "সীমা",
+                "নিরাপদ",
             ),
         ),
         (
@@ -214,9 +269,53 @@ class DeterministicIntentRouter:
                 "sea condition",
                 "ocean condition",
                 "tide and sea",
+                "marine weather",
+                "ocean weather",
+                "sea weather",
+                "sea state",
+                "ocean state",
+                "wave",
+                "waves",
+                "wind",
+                "winds",
+                "current",
+                "currents",
+                "sst",
+                "water temp",
+                "sea temperature",
+                "water condition",
+                "check condition",
+                "check marine",
+                "conditions",
+                "weather",
                 "समुद्र की स्थिति",
                 "समुद्री स्थिति",
+                "समुद्र",
+                "लहरें",
+                "मौसम",
                 "સમુદ્રની સ્થિતિ",
+                "દરિયાની સ્થિતિ",
+                "દરિયો",
+                "મોજાં",
+                "સાબરી परिस्थिती",
+                "सागरी परिस्थिती",
+                "लाटा",
+                "கடல் நிலை",
+                "கடல் வானிலை",
+                "கடல்",
+                "அலைகள்",
+                "சముద్ర పరిస్థితులు",
+                "సముద్ర పరిస్థితులు",
+                "సముద్రం",
+                "సముద్ర వాతావరణం",
+                "സമുദ്ര സാഹചര്യങ്ങൾ",
+                "സമുദ്ര കാലാവസ്ഥ",
+                "കടൽ",
+                "തിരമാലകൾ",
+                "সামুদ্রিক অবস্থা",
+                "সমুদ্রের আবহাওয়া",
+                "সমুদ্র",
+                "ঢেউ",
             ),
         ),
     )
@@ -251,9 +350,12 @@ class GeminiFunctionIntentRouter:
         model: str = "gemini-3.7-flash",
         timeout_seconds: float = 20.0,
         chat_model: Any | None = None,
+        enable_cache: bool = True,
     ) -> None:
         self.model = model
         self.timeout_seconds = timeout_seconds
+        self.enable_cache = enable_cache
+        self._cache: dict[str, RouterOutcome] = {}
         if chat_model is None:
             try:
                 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -261,14 +363,20 @@ class GeminiFunctionIntentRouter:
                 raise IntentRouterNotConfigured(
                     "Gemini routing dependency is not installed"
                 ) from None
-            chat_model = ChatGoogleGenerativeAI(
-                model=model,
-                google_api_key=api_key.get_secret_value(),
-                vertexai=False,
-                temperature=0,
-                max_retries=0,
-                timeout=timeout_seconds,
-            )
+            chat_kwargs: dict[str, Any] = {
+                "model": model,
+                "google_api_key": api_key.get_secret_value(),
+                "vertexai": False,
+                "temperature": 0,
+                "max_retries": 0,
+                "timeout": timeout_seconds,
+                "max_output_tokens": 150,
+            }
+            # Disable thinking reasoning tokens to minimize token usage and avoid rate limits
+            try:
+                chat_model = ChatGoogleGenerativeAI(**chat_kwargs, thinking_budget=0)
+            except (TypeError, ValueError):
+                chat_model = ChatGoogleGenerativeAI(**chat_kwargs)
         tool = {
             "name": "route_request",
             "description": "Classify an ORCA request; never provide evidence or availability.",
@@ -303,6 +411,22 @@ class GeminiFunctionIntentRouter:
         self._bound = chat_model.bind_tools([tool], tool_choice="route_request")
 
     async def route(self, request: AssistantRequest) -> RouterOutcome:
+        cache_key = (
+            f"{request.message.strip().lower()}|"
+            f"loc={request.latitude is not None}|"
+            f"time={request.requested_time is not None}|"
+            f"limits={request.operational_limits.supplied_count() > 0}"
+        )
+        if self.enable_cache and cache_key in self._cache:
+            cached = self._cache[cache_key]
+            return RouterOutcome(
+                routing=cached.routing,
+                mode=cached.mode,
+                model=cached.model,
+                input_tokens=0,
+                output_tokens=0,
+            )
+
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
         except ImportError:
@@ -340,13 +464,18 @@ class GeminiFunctionIntentRouter:
         except ValidationError:
             raise GeminiRouterOutputError() from None
         usage = getattr(message, "usage_metadata", None) or {}
-        return RouterOutcome(
+        outcome = RouterOutcome(
             routing=routed,
             mode=RoutingMode.GEMINI,
             model=self.model,
             input_tokens=_safe_token(usage.get("input_tokens")),
             output_tokens=_safe_token(usage.get("output_tokens")),
         )
+        if self.enable_cache:
+            if len(self._cache) >= 256:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[cache_key] = outcome
+        return outcome
 
 
 def _safe_token(value: Any) -> int | None:
@@ -366,13 +495,21 @@ def _map_gemini_error(exc: BaseException) -> GeminiRouterError:
             status_code = candidate
             break
         current = current.__cause__ or current.__context__
-    if status_code == 429:
+
+    exc_str = str(exc).upper()
+    if (
+        status_code == 429
+        or "429" in exc_str
+        or "RESOURCE_EXHAUSTED" in exc_str
+        or "QUOTA" in exc_str
+        or "RATE_LIMIT" in exc_str
+    ):
         return GeminiRouterError(
             "ASSISTANT_ROUTER_RATE_LIMITED",
             retryable=True,
             retry_after_seconds=30,
         )
-    if status_code in {401, 403}:
+    if status_code in {401, 403} or "API_KEY" in exc_str or "UNAUTHENTICATED" in exc_str:
         return GeminiRouterError(
             "ASSISTANT_ROUTER_AUTHENTICATION_FAILED", retryable=False
         )

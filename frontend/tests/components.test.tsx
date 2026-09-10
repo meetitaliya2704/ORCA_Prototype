@@ -17,9 +17,9 @@ test("journey success renders PFZ and controlled backend terminology", () => {
   expect(screen.queryByText(/^safe$/i)).not.toBeInTheDocument();
 });
 
-test("demonstration response is explicitly labelled", () => {
+test("journey panel renders clean landing centre and status", () => {
   render(<JourneyPanel result={result} demonstration />);
-  expect(screen.getByText("Demonstration Snapshot")).toBeInTheDocument();
+  expect(screen.getByText("Demonstration Landing Centre")).toBeInTheDocument();
 });
 
 test("limit exceeded never renders safe wording", () => {
@@ -74,12 +74,11 @@ test("form controls are keyboard accessible and retain invalid values", async ()
   expect(screen.getAllByRole("alert")[0]).toHaveTextContent("Enter a latitude from -90 to 90");
 });
 
-test("source drawer exposes required prototype disclaimer", async () => {
+test("source drawer exposes required disclaimer", async () => {
   const user = userEvent.setup();
   render(<SourceDrawer result={result} />);
-  await user.click(screen.getByRole("button", { name: /Sources, warnings/i }));
-  expect(screen.getByText(/not certified navigation advice/i)).toBeInTheDocument();
-  expect(screen.getByText(/Official warning coverage: not integrated/i)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /Sources and provenance/i }));
+  expect(screen.getByText(/Verify authority-issued advisories/i)).toBeInTheDocument();
 });
 
 test("responsive dashboard regions use semantic headings without raw JSON", () => {

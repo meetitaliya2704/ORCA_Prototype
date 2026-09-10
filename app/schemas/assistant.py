@@ -40,6 +40,11 @@ class AssistantLanguage(StrEnum):
     ENGLISH = "en"
     HINDI = "hi"
     GUJARATI = "gu"
+    MARATHI = "mr"
+    TAMIL = "ta"
+    TELUGU = "te"
+    MALAYALAM = "ml"
+    BENGALI = "bn"
 
 
 class AssistantMode(StrEnum):

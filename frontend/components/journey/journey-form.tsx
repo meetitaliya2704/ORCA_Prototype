@@ -105,10 +105,7 @@ export function JourneyForm({
           <div className="mt-5 grid gap-2">
             <Button type="submit" disabled={submitting}>{submitting ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <MapPin aria-hidden="true" className="size-4" />}{submitting ? "Collecting evidence…" : "Find nearest PFZ"}</Button>
             {submitting && <Button type="button" variant="secondary" onClick={onCancel}><X aria-hidden="true" className="size-4" />Cancel request</Button>}
-            <Button type="button" variant="ghost" onClick={loadExample}><FlaskConical aria-hidden="true" className="size-4" />Load demonstration example</Button>
-            {demoEnabled && <Button type="button" variant="secondary" onClick={onDemo}><FlaskConical aria-hidden="true" className="size-4" />View saved demonstration snapshot</Button>}
           </div>
-          <p className="mt-3 text-xs text-[var(--muted-foreground)]">Demonstration limits are illustrative values only. They are not official limits for any vessel.</p>
         </form>
       </CardContent>
     </Card>

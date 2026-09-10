@@ -15,9 +15,9 @@ export function InformationDialog() {
         <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[min(34rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl bg-white p-6 shadow-xl focus:outline-none">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <DialogPrimitive.Title className="text-xl font-bold">About this prototype</DialogPrimitive.Title>
+              <DialogPrimitive.Title className="text-xl font-bold">About ORCA</DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-2 text-[var(--muted-foreground)]">
-                ORCA combines official-source advisories and numerical model evidence for research and education.
+                ORCA is a marine intelligence platform that combines official-source advisories and numerical model evidence for research and education.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild><Button variant="ghost" size="icon" aria-label="Close information"><X aria-hidden="true" /></Button></DialogPrimitive.Close>

@@ -21,17 +21,16 @@ import {
 } from "@/components/ui/map";
 import { publicConfig } from "@/lib/config";
 import { assertGeoJsonCoordinateOrder } from "@/lib/geojson/journey";
-import type { JourneyResponse } from "@/lib/schemas/journey";
-
-type JourneyFeature = NonNullable<JourneyResponse["geojson"]>["features"][number];
+import { isJourneyResponse, spatialFeatures, type SpatialFeature, type SpatialResult } from "@/lib/geojson/spatial";
 
 export function fitJourneyGeoJson(
   instance: MapLibreMap,
-  result: JourneyResponse | null,
+  result: SpatialResult | null,
   reducedMotion: boolean,
 ) {
-  if (!result?.geojson || !assertGeoJsonCoordinateOrder(result)) return false;
-  const points = result.geojson.features.flatMap((feature) =>
+  if (!result?.geojson) return false;
+  if (isJourneyResponse(result) && !assertGeoJsonCoordinateOrder(result)) return false;
+  const points = spatialFeatures(result).flatMap((feature) =>
     feature.geometry.type === "Point" ? [feature.geometry.coordinates] : [],
   );
   if (points.length > 0) {
@@ -48,7 +47,7 @@ export function fitJourneyGeoJson(
   return true;
 }
 
-function featureLabel(feature: JourneyFeature) {
+function featureLabel(feature: SpatialFeature) {
   return feature.properties.feature_type === "origin" ? "Origin" : "PFZ destination";
 }
 
@@ -57,20 +56,21 @@ function JourneyMapContent({
   onReady,
   onError,
 }: {
-  result: JourneyResponse | null;
+  result: SpatialResult | null;
   onReady: () => void;
   onError: () => void;
 }) {
   const { map } = useMap();
   const [linePoints, setLinePoints] = useState<string | null>(null);
   const pointFeatures = useMemo(
-    () => result?.geojson?.features.filter((feature) => feature.geometry.type === "Point") ?? [],
+    () => spatialFeatures(result).filter((feature) => feature.geometry.type === "Point"),
     [result],
   );
   const referenceLine = useMemo(
-    () => result?.geojson?.features.find((feature) => feature.geometry.type === "LineString"),
+    () => spatialFeatures(result).find((feature) => feature.geometry.type === "LineString"),
     [result],
   );
+  const journeyPfz = result && isJourneyResponse(result) ? result.pfz?.nearest_pfz : null;
 
   const updateReferenceLine = useCallback(() => {
     if (!map || referenceLine?.geometry.type !== "LineString") {
@@ -157,7 +157,7 @@ function JourneyMapContent({
         const origin = feature.properties.feature_type === "origin";
         return (
           <MapMarker
-            key={feature.properties.feature_type}
+            key={String(feature.properties.feature_type ?? `${longitude}:${latitude}`)}
             longitude={longitude}
             latitude={latitude}
             anchor="center"
@@ -182,9 +182,9 @@ function JourneyMapContent({
                 <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                   {latitude.toFixed(5)}, {longitude.toFixed(5)}
                 </p>
-                {!origin && result?.pfz?.nearest_pfz && (
+                {!origin && journeyPfz && (
                   <p className="mt-2 border-t border-[var(--border)] pt-2 text-xs">
-                    {result.pfz.nearest_pfz.landing_centre} · {result.pfz.nearest_pfz.region_name}
+                    {journeyPfz.landing_centre} · {journeyPfz.region_name}
                   </p>
                 )}
               </div>
@@ -208,10 +208,10 @@ function JourneyMapContent({
   );
 }
 
-export default function MarineMap({ result }: { result: JourneyResponse | null }) {
+export default function MarineMap({ result }: { result: SpatialResult | null }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const features = useMemo(() => result?.geojson?.features ?? [], [result]);
+  const features = useMemo(() => spatialFeatures(result), [result]);
   const markReady = useCallback(() => {
     setError(null);
     setLoaded(true);

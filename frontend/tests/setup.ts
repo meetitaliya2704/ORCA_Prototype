@@ -5,6 +5,11 @@ import { cleanup } from "@testing-library/react";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  try {
+    localStorage.clear();
+  } catch {
+    // Ignore in non-storage environments
+  }
 });
 
 Object.defineProperty(window, "matchMedia", {

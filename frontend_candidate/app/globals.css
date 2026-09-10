@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #F4F8FB;
+  --color-surface: #FFFFFF;
+  --color-surface-light: #E8F2F8;
+  --color-border: #C9DCE8;
+  --color-cyan: #0891B2;
+  --color-go: #059669;
+  --color-wait: #D97706;
+  --color-avoid: #DC2626;
+  --color-text-primary: #0B3A4A;
+  --color-text-muted: #4A6B7C;
+  --font-display: var(--font-space-grotesk), sans-serif;
+  --font-body: var(--font-inter), sans-serif;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+
+.hero-slide {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  animation: hero-crossfade 28s ease-in-out infinite;
+  transform: scale(1.08);
+}
+
+.hero-slide:nth-child(1) { background-image: url("/hero/01.webp"); animation-delay: 0s; }
+.hero-slide:nth-child(2) { background-image: url("/hero/02.webp"); animation-delay: 7s; }
+.hero-slide:nth-child(3) { background-image: url("/hero/03.webp"); animation-delay: 14s; }
+.hero-slide:nth-child(4) { background-image: url("/hero/04.webp"); animation-delay: 21s; }
+
+@keyframes hero-crossfade {
+  0% { opacity: 0; transform: scale(1.08); }
+  6% { opacity: 1; }
+  22% { opacity: 1; transform: scale(1); }
+  28% { opacity: 0; transform: scale(1); }
+  100% { opacity: 0; }
+}

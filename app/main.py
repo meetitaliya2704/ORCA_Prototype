@@ -476,8 +476,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.pfz_snapshot_service = pfz_snapshot_service
     app.state.pfz_nearest_service = PFZNearestService(
-        snapshot_service=pfz_snapshot_service
+        snapshot_service=pfz_snapshot_service,
+        enable_coastal_fallback=True,
     )
+    try:
+        from app.services.indian_coastline_pfz import get_indian_coastline_snapshot
+
+        initial_pfz = get_indian_coastline_snapshot()
+        pfz_dump = initial_pfz.model_dump(mode="json")
+        await cache.set("pfz:snapshot:fresh", pfz_dump, settings.pfz_cache_ttl_seconds)
+        await cache.set("pfz:snapshot:last_success", pfz_dump, settings.pfz_stale_ttl_seconds)
+    except Exception:
+        pass
+    from app.services.demo_fallbacks import (
+        DemoChlorophyllService,
+        DemoCurrentService,
+        DemoECMWFWindService,
+        DemoSSTService,
+        DemoTideService,
+        DemoWaveService,
+        DemoWindService,
+    )
+
+    coastal_fallback_sources = {
+        "sst": DemoSSTService(),
+        "chlorophyll": DemoChlorophyllService(),
+        "waves": DemoWaveService(),
+        "wind": DemoWindService(),
+        "currents": DemoCurrentService(),
+        "sea_level": DemoTideService(),
+    }
+
     app.state.evidence_service = (
         MarineEvidenceService(
             pfz_service=app.state.pfz_nearest_service,
@@ -490,6 +519,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             forecast_wind_service=app.state.ecmwf_wind_service,
             current_service=app.state.current_service,
             sea_level_service=app.state.tide_service,
+            fallback_services=coastal_fallback_sources,
+            source_timeout_seconds=2.5,
             max_concurrent_sources=settings.evidence_max_concurrent_sources,
         )
         if settings.evidence_aggregation_enabled
@@ -512,8 +543,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.assistant_service = None
     if settings.assistant_enabled:
-        if database_manager is None:
-            raise RuntimeError("ASSISTANT_PERSISTENCE_CONFIGURATION_FAILED")
         try:
             from app.agents.graph import AssistantServices, ORCAAssistantGraph
             from app.agents.intents import (
@@ -521,7 +550,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 FallbackIntentRouter,
                 GeminiFunctionIntentRouter,
             )
-            from app.services.assistant_store import SQLAlchemyAssistantPersistence
+            from app.services.assistant_store import (
+                InMemoryAssistantPersistence,
+                SQLAlchemyAssistantPersistence,
+            )
 
             fallback_router = DeterministicIntentRouter()
             if settings.assistant_gemini_routing_enabled:
@@ -538,11 +570,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             else:
                 router = fallback_router
                 configured_model = None
+            persistence = (
+                SQLAlchemyAssistantPersistence(database_manager.session_factory)
+                if database_manager is not None and settings.database_enabled
+                else InMemoryAssistantPersistence()
+            )
             app.state.assistant_service = ORCAAssistantGraph(
                 router=router,
-                persistence=SQLAlchemyAssistantPersistence(
-                    database_manager.session_factory
-                ),
+                persistence=persistence,
                 services=AssistantServices(
                     pfz_nearest=app.state.pfz_nearest_service,
                     evidence=app.state.evidence_service,

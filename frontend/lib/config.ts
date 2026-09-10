@@ -6,7 +6,7 @@ const integerSetting = (value: string | undefined, fallback: number) => {
 const developmentApiDefault =
   process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "";
 
-const assistantMode = assistantModeSchema.catch("disabled").parse(process.env.NEXT_PUBLIC_ORCA_ASSISTANT_MODE ?? "disabled");
+const assistantMode = assistantModeSchema.catch("live").parse(process.env.NEXT_PUBLIC_ORCA_ASSISTANT_MODE ?? "live");
 
 export const publicConfig = {
   apiBaseUrl:

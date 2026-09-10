@@ -201,3 +201,47 @@ async def test_router_timeout_is_bounded_and_cancellation_propagates():
     with pytest.raises(GeminiRouterError) as captured:
         await router.route(AssistantRequest(message="test"))
     assert captured.value.code == "ASSISTANT_ROUTER_TIMEOUT"
+
+
+async def test_gemini_router_caches_identical_queries_with_zero_tokens():
+    message = SimpleNamespace(
+        tool_calls=[
+            {
+                "name": "route_request",
+                "args": {
+                    "intent": "marine_conditions",
+                    "confidence": 0.95,
+                    "required_information": [],
+                },
+            }
+        ],
+        usage_metadata={"input_tokens": 150, "output_tokens": 30},
+    )
+    bound = FakeBoundModel(response=message)
+    chat = FakeChatModel(bound)
+    router = GeminiFunctionIntentRouter(
+        api_key=SecretStr("not-a-real-key"), chat_model=chat
+    )
+
+    req = AssistantRequest(message="Check marine conditions", latitude=18.9, longitude=72.8)
+    # Turn 1: Calls model
+    res1 = await router.route(req)
+    assert len(bound.messages) == 1
+    assert res1.input_tokens == 150
+    assert res1.output_tokens == 30
+    assert res1.routing.intent == "marine_conditions"
+
+    # Turn 2: Exact same query should hit in-memory cache (0 tokens, no model call)
+    res2 = await router.route(req)
+    assert len(bound.messages) == 1
+    assert res2.input_tokens == 0
+    assert res2.output_tokens == 0
+    assert res2.routing.intent == "marine_conditions"
+
+
+def test_gemini_errors_detects_resource_exhausted_string():
+    error = RuntimeError("google.api_core.exceptions.ResourceExhausted: 429 Resource has been exhausted (e.g. check quota)")
+    mapped = _map_gemini_error(error)
+    assert mapped.code == "ASSISTANT_ROUTER_RATE_LIMITED"
+    assert mapped.retryable is True
+

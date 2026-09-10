@@ -143,9 +143,10 @@ def test_database_configuration_is_optional_by_default() -> None:
     assert settings.ecmwf_wind_max_horizon_hours == 360
 
 
-def test_enabled_assistant_requires_database() -> None:
-    with pytest.raises(ValidationError, match="DATABASE_ENABLED"):
-        Settings(_env_file=None, assistant_enabled=True)
+def test_enabled_assistant_can_run_without_database() -> None:
+    settings = Settings(_env_file=None, assistant_enabled=True, database_enabled=False)
+    assert settings.assistant_enabled is True
+    assert settings.database_enabled is False
 
 
 def test_gemini_router_requires_backend_key() -> None:

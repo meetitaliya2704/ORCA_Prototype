@@ -344,9 +344,11 @@ class PFZNearestService:
         *,
         snapshot_service: PFZSnapshotService,
         now: Callable[[], datetime] | None = None,
+        enable_coastal_fallback: bool = False,
     ) -> None:
         self.snapshot_service = snapshot_service
         self._now = now or (lambda: datetime.now(UTC))
+        self.enable_coastal_fallback = enable_coastal_fallback
 
     def _query_time(self, supplied: datetime | None) -> datetime:
         value = supplied if supplied is not None else self._now()
@@ -415,6 +417,44 @@ class PFZNearestService:
                         raw_distance,
                     )
                 )
+
+        if not candidates and self.enable_coastal_fallback:
+            from app.services.indian_coastline_pfz import get_indian_coastline_snapshot
+
+            coastal_snapshot = get_indian_coastline_snapshot(query_time)
+            for sector in coastal_snapshot.successful_sectors:
+                advisory = sector.advisory
+                validity = normalize_pfz_validity(
+                    advisory.forecast_date,
+                    advisory.valid_until,
+                )
+                if validity is None:
+                    continue
+                valid_from, valid_until = validity
+                for location in advisory.locations:
+                    raw_distance = haversine_distance_km(
+                        latitude,
+                        longitude,
+                        location.latitude,
+                        location.longitude,
+                    )
+                    tie_break = (
+                        raw_distance,
+                        advisory.sector_code,
+                        location.landing_centre,
+                        location.latitude,
+                        location.longitude,
+                    )
+                    candidates.append(
+                        (
+                            tie_break,
+                            sector,
+                            location,
+                            valid_from,
+                            valid_until,
+                            raw_distance,
+                        )
+                    )
 
         if not candidates:
             raise NoValidPFZError(

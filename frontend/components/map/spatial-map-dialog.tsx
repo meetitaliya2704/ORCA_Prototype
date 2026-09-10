@@ -4,21 +4,32 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Expand, MapPinned, X } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { JourneyResponse } from "@/lib/schemas/journey";
+import { isJourneyResponse, spatialFeatures, spatialPoint, type SpatialResult } from "@/lib/geojson/spatial";
 
 const LazyMapPanel = lazy(() => import("./map-panel").then((module) => ({ default: module.MapPanel })));
 
-export function SpatialMapDialog({ result }: { result: JourneyResponse | null }) {
+export function SpatialMapDialog({ result }: { result: SpatialResult | null }) {
   const [open, setOpen] = useState(false);
-  if (!result?.geojson?.features.some((feature) => feature.geometry.type === "Point")) return null;
-  const origin = result.request.origin;
-  const pfz = result.pfz?.nearest_pfz;
+  if (!spatialFeatures(result).some((feature) => feature.geometry.type === "Point")) return null;
+  const originFeature = spatialPoint(result, "origin");
+  const pfzFeature = spatialPoint(result, "pfz_destination");
+  const origin = result && isJourneyResponse(result)
+    ? result.request.origin
+    : originFeature?.geometry.type === "Point"
+      ? { longitude: originFeature.geometry.coordinates[0], latitude: originFeature.geometry.coordinates[1] }
+      : null;
+  const pfz = result && isJourneyResponse(result)
+    ? result.pfz?.nearest_pfz
+    : pfzFeature?.geometry.type === "Point"
+      ? { longitude: pfzFeature.geometry.coordinates[0], latitude: pfzFeature.geometry.coordinates[1] }
+      : null;
+  const distance = result && isJourneyResponse(result) ? result.distance : null;
   return <section className="map-summary" aria-label="Spatial result summary">
     <div className="min-w-0">
       <h3 className="flex items-center gap-2 font-semibold"><MapPinned aria-hidden="true" className="size-4 text-[var(--secondary)]" />Spatial context</h3>
-      <p className="mt-1 font-data text-xs">Origin: {formatCoordinate(origin.latitude, "N", "S")}, {formatCoordinate(origin.longitude, "E", "W")}</p>
+      {origin && <p className="mt-1 font-data text-xs">Origin: {formatCoordinate(origin.latitude, "N", "S")}, {formatCoordinate(origin.longitude, "E", "W")}</p>}
       {pfz && <p className="font-data text-xs">Nearest PFZ: {formatCoordinate(pfz.latitude, "N", "S")}, {formatCoordinate(pfz.longitude, "E", "W")}</p>}
-      {result.distance && <p className="mt-1 text-sm">{result.distance.kilometres} km · {result.distance.bearing_degrees}° {result.distance.direction}</p>}
+      {distance && <p className="mt-1 text-sm">{distance.kilometres} km · {distance.bearing_degrees}° {distance.direction}</p>}
       <p className="mt-1 text-xs text-[var(--muted-foreground)]">The map is a supporting visualization. All core PFZ and assessment details are available above.</p>
     </div>
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>

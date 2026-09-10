@@ -58,6 +58,19 @@ from app.schemas.pfz_journey import (
     PFZJourneyRequest,
     PFZJourneyResponse,
 )
+from app.domain.coastal_boundaries import decimal_to_dms, is_land_coordinate
+from app.agents.multilingual import (
+    detect_language,
+    format_assessment_response,
+    format_clarification_answer,
+    format_default_greeting,
+    format_inland_prefix_for_pfz,
+    format_land_notice,
+    format_marine_conditions_response,
+    format_pfz_bulletin,
+    format_planned_answer,
+    translate_marine_reading,
+)
 from app.services.assistant_store import (
     AssistantPersistencePort,
 )
@@ -76,6 +89,15 @@ class ServiceFailure:
     code: str
     message: str
     retryable: bool
+
+
+@dataclass(frozen=True, slots=True)
+class LandLocationResult:
+    latitude: float
+    longitude: float
+    nearest_coast: str
+    distance_to_coast_km: float
+    requested_capability: str
 
 
 class ORCAAssistantGraph:
@@ -370,6 +392,21 @@ class ORCAAssistantGraph:
                 "ASSISTANT_LOCATION_REQUIRED",
                 "A location is required for this assistant capability",
             )
+
+        if latitude is not None and longitude is not None:
+            is_land, nearest_coast, coast_dist = is_land_coordinate(latitude, longitude)
+            if is_land and intent in {
+                AssistantIntent.MARINE_CONDITIONS,
+                AssistantIntent.OPERATIONAL_CONDITIONS,
+            }:
+                return LandLocationResult(
+                    latitude=latitude,
+                    longitude=longitude,
+                    nearest_coast=nearest_coast,
+                    distance_to_coast_km=coast_dist,
+                    requested_capability=intent.value,
+                )
+
         if intent == AssistantIntent.NEAREST_PFZ:
             if (
                 request.operational_limits.supplied_count() > 0
@@ -436,6 +473,23 @@ class ORCAAssistantGraph:
             summary, sources, warnings = summarize_pfz(result)
         elif isinstance(result, PFZJourneyResponse):
             summary, sources, warnings = _summarize_journey(result)
+        elif isinstance(result, LandLocationResult):
+            summary = AssistantEvidenceSummary(
+                status=AssistantEvidenceStatus.NOT_COLLECTED,
+                available_sources=0,
+                unavailable_sources=0,
+            )
+            warnings = (
+                AssistantWarning(
+                    code="LOCATION_ON_LAND",
+                    message=(
+                        f"Position ({result.latitude:.4f}°N, {result.longitude:.4f}°E) is located inland on land, "
+                        f"{result.distance_to_coast_km:.0f} km from the nearest coast ({result.nearest_coast}). "
+                        "Marine conditions (waves, sea level, tides, currents, SST) are only defined for ocean waters."
+                    ),
+                    retryable=False,
+                ),
+            )
         elif isinstance(result, ServiceFailure):
             summary = AssistantEvidenceSummary(
                 status=AssistantEvidenceStatus.UNAVAILABLE,
@@ -525,32 +579,95 @@ class ORCAAssistantGraph:
         routed = state["routing_outcome"].routing
         capability = state["capability_status"]
         result = state.get("deterministic_result")
+        lang = detect_language(request.message, request.preferred_language)
+
         if (
             routed.intent == AssistantIntent.CLARIFICATION_REQUIRED
             and routed.required_information
         ):
             status = AssistantResponseStatus.CLARIFICATION_REQUIRED
-            answer = _clarification_answer(request, routed.required_information)
+            answer = format_clarification_answer(lang, routed.required_information)
         elif capability != CapabilityAvailability.AVAILABLE:
             status = AssistantResponseStatus.CAPABILITY_NOT_AVAILABLE
-            answer = _planned_answer(request, routed.intent)
+            answer = format_planned_answer(lang, routed.intent)
         elif routed.required_information:
             status = AssistantResponseStatus.CLARIFICATION_REQUIRED
-            answer = _clarification_answer(request, routed.required_information)
+            answer = format_clarification_answer(lang, routed.required_information)
         elif isinstance(result, ServiceFailure):
             status = AssistantResponseStatus.FAILED
             answer = result.message
         elif isinstance(result, AssistantDemoFixture):
             status = AssistantResponseStatus.PARTIAL
             answer = result.answer
+        elif isinstance(result, LandLocationResult):
+            status = AssistantResponseStatus.COMPLETED
+            answer = format_land_notice(
+                lang,
+                result.latitude,
+                result.longitude,
+                result.nearest_coast,
+                result.distance_to_coast_km,
+            )
         elif isinstance(result, NearestPFZResponse):
             status = AssistantResponseStatus.COMPLETED
             location = result.nearest_pfz
-            answer = (
-                "A currently valid PFZ advisory was found near "
-                f"{location.landing_centre}, {location.region_name}, "
-                f"{location.distance_km:.1f} km away toward {location.direction}. "
-                "PFZ availability does not establish safe sea conditions or guarantee fish presence."
+            date_str = (
+                result.valid_until.strftime("%d %b %Y %H:%M UTC")
+                if result.valid_until
+                else "Active"
+            )
+
+            dist_min = location.distance_from_coast_km.minimum
+            dist_max = location.distance_from_coast_km.maximum
+            if dist_min is not None and dist_max is not None:
+                dist_coast_str = f"{dist_min:.0f} - {dist_max:.0f} km"
+            elif dist_min is not None:
+                dist_coast_str = f"{dist_min:.0f} km"
+            elif dist_max is not None:
+                dist_coast_str = f"Up to {dist_max:.0f} km"
+            else:
+                dist_coast_str = "N/A"
+
+            depth_min = location.depth_m.minimum
+            depth_max = location.depth_m.maximum
+            if depth_min is not None and depth_max is not None:
+                depth_str = f"{depth_min:.0f} - {depth_max:.0f} m"
+            elif depth_min is not None:
+                depth_str = f"{depth_min:.0f} m"
+            elif depth_max is not None:
+                depth_str = f"Up to {depth_max:.0f} m"
+            else:
+                depth_str = "N/A"
+
+            lat_dms = decimal_to_dms(location.latitude, is_lat=True)
+            lon_dms = decimal_to_dms(location.longitude, is_lat=False)
+
+            land_prefix = ""
+            if request.latitude is not None and request.longitude is not None:
+                is_land, nearest_coast, coast_dist = is_land_coordinate(
+                    request.latitude, request.longitude
+                )
+                if is_land:
+                    land_prefix = format_inland_prefix_for_pfz(
+                        lang, coast_dist, nearest_coast, location.landing_centre
+                    )
+
+            answer = format_pfz_bulletin(
+                lang=lang,
+                landing_centre=location.landing_centre,
+                direction=location.direction,
+                bearing_deg=location.bearing_deg,
+                dist_coast_str=dist_coast_str,
+                depth_str=depth_str,
+                lat_dms=lat_dms,
+                lat_num=location.latitude,
+                lon_dms=lon_dms,
+                lon_num=location.longitude,
+                sector_code=location.sector_code,
+                region_name=location.region_name,
+                distance_km=location.distance_km,
+                date_str=date_str,
+                land_prefix=land_prefix,
             )
         elif isinstance(result, PFZJourneyResponse):
             status = (
@@ -558,22 +675,80 @@ class ORCAAssistantGraph:
                 if "INSUFFICIENT" in result.journey_status.value
                 else AssistantResponseStatus.COMPLETED
             )
-            answer = (
-                f"The deterministic PFZ journey outcome is {result.journey_status.value}. "
-                "Origin and PFZ conditions were evaluated separately against the "
-                "user-supplied limits. The reference line is not an evaluated or "
-                "navigable route."
-            )
+            outcome = result.journey_status.value.replace("_", " ").title()
+            pfz_str = ""
+            if result.pfz and result.pfz.nearest_pfz:
+                p = result.pfz.nearest_pfz
+                lat_dms = decimal_to_dms(p.latitude, is_lat=True)
+                lon_dms = decimal_to_dms(p.longitude, is_lat=False)
+                dist_min = p.distance_from_coast_km.minimum
+                dist_max = p.distance_from_coast_km.maximum
+                dist_coast_str = (
+                    f"{dist_min:.0f} - {dist_max:.0f} km"
+                    if dist_min is not None and dist_max is not None
+                    else f"{p.distance_km:.1f} km"
+                )
+                depth_min = p.depth_m.minimum
+                depth_max = p.depth_m.maximum
+                depth_str = (
+                    f"{depth_min:.0f} - {depth_max:.0f} m"
+                    if depth_min is not None and depth_max is not None
+                    else "N/A"
+                )
+                pfz_str = (
+                    f"\n\nDestination INCOIS PFZ Advisory:\n"
+                    f"• Landing Centre: {p.landing_centre} (Sector {p.sector_code}, {p.region_name})\n"
+                    f"• Direction: {p.direction} | Bearing: {p.bearing_deg:.0f}°\n"
+                    f"• Distance (km) From - To: {dist_coast_str}\n"
+                    f"• Depth (mtr) From - To: {depth_str}\n"
+                    f"• Coordinates: {lat_dms}, {lon_dms}\n"
+                    f"• Transit Distance: {result.distance.kilometres:.1f} km {result.distance.direction}"
+                )
+
+            origin_readings = []
+            if result.origin and result.origin.assessment:
+                origin_readings = _extract_marine_readings(
+                    waves_data=result.origin.assessment.critical_evidence.waves.data,
+                    wind_data=result.origin.assessment.critical_evidence.wind.data,
+                    currents_data=result.origin.assessment.critical_evidence.currents.data,
+                    sst_data=result.origin.assessment.context.sst.data,
+                    chlorophyll_data=result.origin.assessment.context.chlorophyll.data,
+                    sea_level_data=result.origin.assessment.context.sea_level.data,
+                    rules=result.origin.assessment.rules,
+                )
+            if origin_readings:
+                bullet_list = "\n".join(f"• {r}" for r in origin_readings)
+                answer = (
+                    f"PFZ Journey evaluation: {outcome}.{pfz_str}\n\n"
+                    f"Origin marine conditions:\n{bullet_list}"
+                )
+            else:
+                answer = (
+                    f"PFZ Journey evaluation: {outcome}.{pfz_str}\n\n"
+                    "Origin and destination marine conditions were evaluated against your configured limits."
+                )
         elif isinstance(result, MarineAssessmentResponse):
             status = (
                 AssistantResponseStatus.PARTIAL
                 if result.evidence_confidence.value != "NORMAL"
                 else AssistantResponseStatus.COMPLETED
             )
-            answer = (
-                f"The deterministic operational outcome is {result.outcome.value}. "
-                "It compares available evidence only with the user-supplied limits; "
-                "it is not a safety or navigation approval."
+            outcome = result.outcome.value.replace("_", " ").title()
+            confidence = result.evidence_confidence.value.lower()
+            readings = _extract_marine_readings(
+                waves_data=result.critical_evidence.waves.data,
+                wind_data=result.critical_evidence.wind.data,
+                currents_data=result.critical_evidence.currents.data,
+                sst_data=result.context.sst.data,
+                chlorophyll_data=result.context.chlorophyll.data,
+                sea_level_data=result.context.sea_level.data,
+                rules=result.rules,
+            )
+            answer = format_assessment_response(
+                lang=lang,
+                outcome=outcome,
+                confidence=confidence,
+                readings=readings,
             )
         elif isinstance(result, MarineEvidenceResponse):
             status = (
@@ -581,23 +756,74 @@ class ORCAAssistantGraph:
                 if result.status.value == "complete"
                 else AssistantResponseStatus.PARTIAL
             )
-            answer = (
-                f"Marine evidence collection is {result.status.value}. "
-                "The source states, validity, uncertainty and provenance are preserved below."
+            readings = _extract_marine_readings(
+                waves_data=result.evidence.waves.data,
+                wind_data=result.evidence.wind.data,
+                currents_data=result.evidence.currents.data,
+                sst_data=result.evidence.sst.data,
+                chlorophyll_data=result.evidence.chlorophyll.data,
+                sea_level_data=result.evidence.sea_level.data,
+            )
+            answer = format_marine_conditions_response(
+                lang=lang,
+                readings=readings,
+                status_str=result.status.value,
+                sources_count=result.summary.available_sources,
             )
         elif routed.intent == AssistantIntent.SOURCE_EXPLANATION:
             status = AssistantResponseStatus.COMPLETED
-            answer = (
-                "The listed providers and datasets come from the most recent persisted "
-                "evidence in this conversation."
-                if state["sources"]
-                else "No collected evidence exists in this conversation yet. Run a marine, PFZ, or operational query before requesting its sources."
-            )
+            if lang == "hi":
+                answer = (
+                    "सूचीबद्ध प्रदाता और डेटासेट इस सत्र के नवीनतम सत्यापित समुद्री साक्ष्यों से आते हैं।"
+                    if state["sources"]
+                    else "इस सत्र में अभी तक कोई समुद्री साक्ष्य एकत्र नहीं किया गया है। स्रोत देखने के लिए समुद्री स्थिति या PFZ क्वेरी चलाएं।"
+                )
+            elif lang == "gu":
+                answer = (
+                    "સૂચિબદ્ધ પ્રદાતાઓ અને ડેટાસેટ આ સત્રના સૌથી તાજેતરના ચકાસાયેલ દરિયાઈ પુરાવાઓમાંથી આવે છે."
+                    if state["sources"]
+                    else "આ સત્રમાં હજી સુધી કોઈ પુરાવા એકત્રિત થયા નથી. સ્રોત જોવા માટે દરિયાઈ સ્થિતિ અથવા PFZ તપાસ કરો."
+                )
+            elif lang == "mr":
+                answer = (
+                    "सूचीबद्ध प्रदाते आणि डेटासेट या सत्रातील नवीनतम सत्यापित सागरी पुराव्यांमधून आले आहेत."
+                    if state["sources"]
+                    else "या सत्रात अद्याप कोणताही पुरावा गोळा केलेला नाही. अधिकृत स्त्रोत पाहण्यासाठी सागरी स्थिती किंवा PFZ क्वेरी चालवा."
+                )
+            elif lang == "ta":
+                answer = (
+                    "பட்டியலிடப்பட்ட வழங்குநர்கள் மற்றும் தரவுத்தொகுப்புகள் இந்த அமர்வின் சமீபத்திய சரிபார்க்கப்பட்ட கடல்சார் சான்றுகளிலிருந்து வருகின்றன."
+                    if state["sources"]
+                    else "இந்த அமர்வில் இதுவரை சான்றுகள் சேகரிக்கப்படவில்லை. மூலங்களை ஆய்வு செய்ய கடல் நிலை அல்லது PFZ வினவலை இயக்கவும்."
+                )
+            elif lang == "te":
+                answer = (
+                    "జాబితా చేయబడిన ప్రొవైడర్లు మరియు డేటాసెట్‌లు ఈ సెషన్‌లో ఇటీవల ధృవీకరించబడిన సముద్ర ఆధారాల నుండి వచ్చాయి."
+                    if state["sources"]
+                    else "ఈ సెషన్‌లో ఇంకా ఆధారాలు సేకరించబడలేదు. అధికారిక మూలాలను పరిశీలించడానికి సముద్ర పరిస్థితులు లేదా PFZ ప్రశ్నను అమలు చేయండి."
+                )
+            elif lang == "ml":
+                answer = (
+                    "ലിസ്റ്റുചെയ്ത വിവരങ്ങൾ ഈ സെഷനിലെ ഏറ്റവും പുതിയ സ്ഥിരീകരിച്ച സമുദ്ര തെളിവുകളിൽ നിന്നാണ് വരുന്നത്."
+                    if state["sources"]
+                    else "ഈ സെഷനിൽ ഇതുവരെ തെളിവുകൾ ശേഖരിച്ചിട്ടില്ല. വിവരങ്ങൾ കാണാൻ സമുദ്ര അവസ്ഥ അല്ലെങ്കിൽ PFZ അന്വേഷണം നടത്തുക."
+                )
+            elif lang == "bn":
+                answer = (
+                    "তালিকাভুক্ত সরবরাহকারী এবং ডেটাসেটগুলি এই সেশনের সাম্প্রতিক যাচাইকৃত সামুদ্রিক প্রমাণ থেকে এসেছে।"
+                    if state["sources"]
+                    else "এই সেশনে এখনও কোনো প্রমাণ সংগৃহীত হয়নি। সামুদ্রিক অবস্থা বা PFZ কোয়েরি চালিয়ে অফিসিয়াল উৎস পরীক্ষা করুন।"
+                )
+            else:
+                answer = (
+                    "The listed providers and datasets come from the most recent verified marine "
+                    "evidence in this session."
+                    if state["sources"]
+                    else "No collected evidence exists in this session yet. Run a marine conditions or PFZ query to inspect official source provenance."
+                )
         else:
-            status = AssistantResponseStatus.CAPABILITY_NOT_AVAILABLE
-            answer = (
-                "This request is not supported by the current ORCA capability registry."
-            )
+            status = AssistantResponseStatus.COMPLETED
+            answer = format_default_greeting(lang)
         return {
             "completion_status": status,
             "answer": answer,
@@ -811,27 +1037,82 @@ def _summarize_journey(
     )
 
 
+def _extract_marine_readings(
+    waves_data: Any = None,
+    wind_data: Any = None,
+    currents_data: Any = None,
+    sst_data: Any = None,
+    chlorophyll_data: Any = None,
+    sea_level_data: Any = None,
+    rules: Any = None,
+) -> list[str]:
+    limits_map: dict[str, str] = {}
+    if rules:
+        for r in rules:
+            if getattr(r, "configured_limit", None) is not None:
+                param = getattr(r, "parameter", "")
+                unit = getattr(r, "unit", "")
+                limits_map[param] = f"{r.configured_limit:g} {unit}".strip()
+
+    readings: list[str] = []
+
+    # Significant wave height
+    if waves_data is not None:
+        swh = getattr(waves_data, "significant_wave_height", None)
+        v = getattr(swh, "value", None) if swh is not None else getattr(waves_data, "value", None)
+        if v is not None:
+            lim = limits_map.get("significant_wave_height")
+            lim_suffix = f" (limit: {lim})" if lim else ""
+            readings.append(f"Significant wave height: {v:.1f} m{lim_suffix}")
+
+    # Wind speed
+    if wind_data is not None:
+        ws = getattr(wind_data, "wind_speed", None)
+        v = getattr(ws, "value", None) if ws is not None else getattr(wind_data, "wind_speed_mps", None)
+        if v is not None:
+            lim = limits_map.get("wind_speed")
+            lim_suffix = f" (limit: {lim})" if lim else ""
+            readings.append(f"Wind speed: {v:.1f} m/s{lim_suffix}")
+
+    # Surface currents
+    if currents_data is not None:
+        tc = getattr(currents_data, "total_current", None)
+        v = getattr(tc, "speed_mps", None) if tc is not None else getattr(currents_data, "speed_mps", None)
+        if v is not None:
+            lim = limits_map.get("total_surface_current_speed")
+            lim_suffix = f" (limit: {lim})" if lim else ""
+            readings.append(f"Surface current: {v:.2f} m/s{lim_suffix}")
+
+    # Sea Surface Temperature (SST)
+    if sst_data is not None:
+        v = getattr(sst_data, "value", None)
+        if v is not None:
+            readings.append(f"Sea Surface Temperature (SST): {v:.1f}°C")
+
+    # Chlorophyll-a
+    if chlorophyll_data is not None:
+        ca = getattr(chlorophyll_data, "chlorophyll_a", None)
+        v = getattr(ca, "value", None) if ca is not None else getattr(chlorophyll_data, "value", None)
+        if v is not None:
+            readings.append(f"Chlorophyll-a: {v:.2f} mg/m³")
+
+    # Sea level
+    if sea_level_data is not None:
+        v = getattr(sea_level_data, "total_modelled_sea_level_m", None) or getattr(sea_level_data, "astronomical_tide_elevation_m", None)
+        if v is not None:
+            readings.append(f"Sea level / Tide: {v:.2f} m")
+
+    return readings
+
+
 def _clarification_answer(request: AssistantRequest, required: tuple[Any, ...]) -> str:
-    fields = ", ".join(item.value.replace("_", " ") for item in required)
-    if request.preferred_language.value == "hi":
-        return f"आगे बढ़ने के लिए कृपया यह जानकारी दें: {fields}."
-    if request.preferred_language.value == "gu":
-        return f"આગળ વધવા માટે કૃપા કરીને આ માહિતી આપો: {fields}."
-    return f"Please provide the following before ORCA continues: {fields}."
+    lang = detect_language(request.message, request.preferred_language)
+    return format_clarification_answer(lang, required)
 
 
 def _planned_answer(request: AssistantRequest, intent: AssistantIntent) -> str:
-    del request
-    notices = {
-        AssistantIntent.OFFICIAL_ALERTS: "Official cyclone and lightning alert integration is not available. Verify current authority-issued warnings independently.",
-        AssistantIntent.HABITAT_SCREENING: "Regional habitat screening is only partially planned and is not available through the assistant.",
-        AssistantIntent.PRODUCTIVITY_ANALYSIS: "Historical productivity analysis is planned and no conclusion can be produced from current point evidence.",
-        AssistantIntent.LOWER_RISK_ROUTE: "Lower-risk route generation is planned. ORCA does not currently produce a safe, recommended, or navigable route.",
-        AssistantIntent.AVOIDANCE_ZONES: "Verified avoidance-zone and geofence screening is not implemented in this checkout.",
-        AssistantIntent.UNSUPPORTED: "This request is not supported by the current ORCA capability registry.",
-        AssistantIntent.CLARIFICATION_REQUIRED: "More information is required before this request can be classified.",
-    }
-    return notices.get(intent, "This capability is not currently available.")
+    lang = detect_language(request.message, request.preferred_language)
+    return format_planned_answer(lang, intent)
 
 
 def _persistence_quality(summary: AssistantEvidenceSummary) -> EvidenceQuality | None:

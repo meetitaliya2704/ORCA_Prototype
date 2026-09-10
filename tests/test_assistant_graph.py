@@ -495,3 +495,66 @@ def test_warning_sanitizer_removes_urls_secrets_and_local_paths():
     assert "provider.invalid" not in sanitized
     assert "hidden" not in sanitized
     assert "person" not in sanitized
+
+
+async def test_land_coordinate_marine_conditions_returns_inland_explanation():
+    pfz, evidence, assessment = await service_results()
+    graph = ORCAAssistantGraph(
+        router=FixedRouter("marine_conditions"),
+        persistence=MemoryPersistence(),
+        services=AssistantServices(
+            FakeService("get_nearest", pfz),
+            FakeService("aggregate", evidence),
+            FakeService("assess", assessment),
+        ),
+        model=None,
+        now=lambda: NOW,
+    )
+    # Pune, India (inland location)
+    result = await graph.query(
+        AssistantRequest(
+            message="Check marine conditions",
+            latitude=18.5204,
+            longitude=73.8567,
+            requested_time=NOW,
+        )
+    )
+    assert result.completion_status == "completed"
+    assert "inland on land" in result.answer
+    assert "Alibaug" in result.answer or "Mumbai" in result.answer or "coast" in result.answer
+    assert "only exist in coastal and offshore waters" in result.answer
+    assert any(w.code == "LOCATION_ON_LAND" for w in result.warnings)
+
+
+async def test_incois_pfz_advisory_fields_formatted_in_response():
+    pfz, evidence, assessment = await service_results()
+    graph = ORCAAssistantGraph(
+        router=FixedRouter("nearest_pfz"),
+        persistence=MemoryPersistence(),
+        services=AssistantServices(
+            FakeService("get_nearest", pfz),
+            FakeService("aggregate", evidence),
+            FakeService("assess", assessment),
+        ),
+        model=None,
+        now=lambda: NOW,
+    )
+    result = await graph.query(
+        AssistantRequest(
+            message="Find nearest PFZ advisory",
+            latitude=20.5,
+            longitude=72.9,
+            requested_time=NOW,
+        )
+    )
+    assert result.completion_status == "completed"
+    assert "Official INCOIS PFZ Advisory Details:" in result.answer
+    assert "Landing Centre:" in result.answer
+    assert "Direction:" in result.answer
+    assert "Bearing (deg):" in result.answer
+    assert "Distance (km) From - To:" in result.answer
+    assert "Depth (mtr) From - To:" in result.answer
+    assert "Latitude (dms):" in result.answer
+    assert "Longitude (dms):" in result.answer
+    assert "Sector & Region:" in result.answer
+

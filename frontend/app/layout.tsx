@@ -3,8 +3,8 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "ORCA Marine Decision-Support Prototype",
-  description: "Map-based marine evidence and PFZ operational-limit assessment.",
+  title: "ORCA — Marine Intelligence",
+  description: "Conversational marine evidence, PFZ and operational-limit decision support.",
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };

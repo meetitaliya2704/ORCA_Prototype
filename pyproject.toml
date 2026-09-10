@@ -41,6 +41,7 @@ test = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "--basetemp=.pytest_temp"
 
 [tool.setuptools.packages.find]
 include = ["app*"]

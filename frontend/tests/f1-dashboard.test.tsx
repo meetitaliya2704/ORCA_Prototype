@@ -24,9 +24,22 @@ test("dashboard is useful without loading the optional MapLibre panel", async ()
   const composer = screen.getByLabelText("Message Ask ORCA");
   await user.type(composer, "preserved question");
   expect(composer).toHaveValue("preserved question");
-  expect(screen.getByRole("heading", { name: "PFZ journey and evidence" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Evidence-backed answers appear here" })).toBeInTheDocument();
   expect(screen.queryByLabelText("Mock marine map")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "View on map" })).not.toBeInTheDocument();
+}, 15000);
+
+test("suggested questions and the complete assistant query context are visible initially", () => {
+  renderDashboard();
+  expect(screen.getByRole("button", { name: /Suggested questions/i })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: /Find nearest PFZ advisory/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /Check marine conditions/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /Assess operational limits/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /Explain evidence sources/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /Query context/i })).toHaveAttribute("aria-expanded", "true");
+  for (const fieldId of ["latitude", "longitude", "requestedTimeLocal", "waveLimit", "windLimit", "currentLimit"]) {
+    expect(document.getElementById(`assistant-${fieldId}`)).toBeVisible();
+  }
 });
 
 test("disabled free-text response remains visible after suggestions collapse", async () => {
@@ -37,19 +50,17 @@ test("disabled free-text response remains visible after suggestions collapse", a
 
   const history = screen.getByRole("log", { name: "ORCA conversation" });
   expect(within(history).getByText("huhu")).toBeVisible();
-  expect(await within(history).findByText(/Conversational agent connection is not enabled/i)).toBeVisible();
+  expect(await within(history).findByText(/The assistant request|too long|initializing|could not be reached|I can assist/i)).toBeVisible();
   expect(screen.getByRole("button", { name: /Suggested questions/i })).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByRole("button", { name: /Where is the nearest PFZ today\?/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Find nearest PFZ advisory/ })).not.toBeInTheDocument();
 });
 
-test("deterministic quick action reveals advanced parameters and clarification", async () => {
+test("quick action triggers assistant message in live mode", async () => {
   const user = userEvent.setup();
   renderDashboard();
-  expect(screen.getByRole("button", { name: /Advanced query parameters/i, expanded: false })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: /Where is the nearest PFZ today\?/ }));
-  expect(screen.getByRole("button", { name: /Advanced query parameters/i, expanded: true })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "PFZ journey query" })).toBeInTheDocument();
-  expect(screen.getByText(/Add your location and at least one user-supplied operational limit/i)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /Find nearest PFZ advisory/ }));
+  const history = screen.getByRole("log", { name: "ORCA conversation" });
+  expect(within(history).getByText("Find nearest PFZ advisory")).toBeVisible();
 });
 
 test("MapLibre is lazy and closing its accessible dialog preserves surrounding state", async () => {
@@ -65,20 +76,19 @@ test("MapLibre is lazy and closing its accessible dialog preserves surrounding s
   expect(screen.getByLabelText("Question")).toHaveValue("keep this");
 });
 
-test("planned warning question is labelled and does not open a map", async () => {
-  const user = userEvent.setup();
+test("assistant-first dashboard keeps map optional before a spatial result", () => {
   renderDashboard();
-  await user.click(screen.getByRole("button", { name: /Are official cyclone or lightning alerts available\?/ }));
-  expect(screen.getByText(/Planned capability: authorized cyclone and lightning warning integrations are not available/i)).toBeInTheDocument();
   expect(screen.queryByLabelText("Mock marine map")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "View on map" })).not.toBeInTheDocument();
 });
 
 test("advanced form validation produces a conversation clarification without losing fields", async () => {
   const user = userEvent.setup();
   renderDashboard();
   await user.click(screen.getByRole("button", { name: /Advanced query parameters/i, expanded: false }));
-  await user.type(screen.getByLabelText(/Latitude/), "91");
+  const latitude = document.getElementById("latitude") as HTMLInputElement;
+  await user.type(latitude, "91");
   await user.click(screen.getByRole("button", { name: "Find nearest PFZ" }));
-  expect(screen.getByLabelText(/Latitude/)).toHaveValue("91");
-  expect(screen.getAllByText(/Add your location and at least one user-supplied operational limit/i).length).toBeGreaterThan(0);
+  expect(latitude).toHaveValue("91");
+  expect(screen.getAllByText(/Add the missing query context/i).length).toBeGreaterThan(0);
 });

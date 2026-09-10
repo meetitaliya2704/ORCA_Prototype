@@ -1,8 +1,8 @@
 "use client";
 
 import MarineMap from "./marine-map";
-import type { JourneyResponse } from "@/lib/schemas/journey";
+import type { SpatialResult } from "@/lib/geojson/spatial";
 
-export function MapPanel({ result }: { result: JourneyResponse | null }) {
+export function MapPanel({ result }: { result: SpatialResult | null }) {
   return <MarineMap result={result} />;
 }

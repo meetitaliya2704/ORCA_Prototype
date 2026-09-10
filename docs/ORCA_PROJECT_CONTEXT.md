@@ -989,10 +989,12 @@ route hazards remain incomplete, and clients must verify authority advisories.
 ### Checkpoint F1 — conversational prototype and judge-demo experience
 
 F1 builds on F0 without changing E1–E4 scientific behavior. Its corrected
-priority is assistant-first: desktop uses a roughly 52/48 Ask ORCA and
-answer/evidence split. Structured E3 inputs remain under Advanced query
-parameters. Mobile reads conversation, deterministic answer, evidence and
-warnings before the optional map and advanced inputs.
+priority is assistant-first: desktop uses a roughly 64/36 Ask ORCA and
+answer/evidence split. Query context opens initially, suggested questions
+remain visible, and the conversation surface grows instead of clipping
+controls behind its composer. Structured E3 inputs remain under Advanced
+query parameters. Mobile reads conversation, deterministic answer, evidence
+and warnings before the optional map and advanced inputs.
 
 MapLibre is a supporting visualization, not a permanent dashboard column. It
 is code-split and mounted only after a spatial result exposes `View on map`.
@@ -1109,3 +1111,25 @@ activates after a live failure and makes no provider/model request. The
 assistant requires the optional Step 1 database boundary, but remains disabled
 by default so normal startup and tests need neither PostgreSQL nor agent
 packages. Database and Gemini credentials remain backend-only.
+
+### Frontend Step 3A — professional assistant integration
+
+Step 3A redesigns the existing Next.js (not the teammate candidate) as one
+premium, assistant-first marine workspace. A compact accessible sidebar,
+projector-readable header, English/Hindi/Gujarati preference, structured query
+context, calm processing state, clarification controls, structured answer and
+source summaries, and optional MapLibre drawer are integrated without changing
+scientific services or the assistant graph.
+
+The browser calls only `POST /v1/assistant/query` and the existing deterministic
+ORCA endpoints. Responses are Zod-validated, abortable, time bounded, and reuse
+the returned conversation ID for follow-up turns. Gemini routing failures that
+the backend resolves through its deterministic fallback are labelled as such.
+HTTP failures remain sanitized and never trigger an automatic demonstration
+fallback. The assistant contract exposes compact provenance, so full numeric
+marine cards remain available through the preserved E3 advanced workflow.
+
+MapLibre remains lazy and secondary. Official warnings, geofences, routing,
+authentication, and browser database access are not added. Controlled outcome
+terminology and the exact “Reference line — route not evaluated” wording remain
+unchanged.

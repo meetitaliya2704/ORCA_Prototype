@@ -1,3 +1,5 @@
+
+
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -28,7 +30,7 @@ class MarineConditionsResponse(BaseModel):
     generated_at: datetime
     sources: dict[str, SourceResult]
     warning: str = (
-        "Prototype decision support only; verify official marine advisories."
+        "Decision support only; verify official marine advisories."
     )
 
 

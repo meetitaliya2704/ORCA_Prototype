@@ -164,6 +164,8 @@ class MarineEvidenceService:
         forecast_wind_service=None,
         current_service=None,
         sea_level_service=None,
+        fallback_services: dict[str, Any] | None = None,
+        source_timeout_seconds: float = 3.0,
         max_concurrent_sources: int = 7,
         now: Callable[[], datetime] | None = None,
     ) -> None:
@@ -177,6 +179,8 @@ class MarineEvidenceService:
         self.forecast_wind_service = forecast_wind_service
         self.current_service = current_service
         self.sea_level_service = sea_level_service
+        self.fallback_services = fallback_services or {}
+        self.source_timeout_seconds = source_timeout_seconds
         self.max_concurrent_sources = max_concurrent_sources
         self._now = now or (lambda: datetime.now(UTC))
 
@@ -200,41 +204,96 @@ class MarineEvidenceService:
         at: datetime,
         comparison_now: datetime,
     ) -> Any:
-        if source == "pfz":
-            service = self._require(self.pfz_service, "pfz")
-            return await service.get_nearest(latitude=latitude, longitude=longitude, at=at)
-        if source == "sst":
-            if self.sst_snapshot_manager is not None:
-                return await self.sst_snapshot_manager.get_sst(
+        fallback = self.fallback_services.get(source)
+
+        async def _invoke_primary() -> Any:
+            if source == "pfz":
+                service = self._require(self.pfz_service, "pfz")
+                return await service.get_nearest(latitude=latitude, longitude=longitude, at=at)
+            if source == "sst":
+                if self.sst_snapshot_manager is not None:
+                    res = await self.sst_snapshot_manager.get_sst(
+                        latitude=latitude, longitude=longitude, at=at
+                    )
+                    if isinstance(res, RefreshAcceptedResponse) and fallback is not None:
+                        return await _invoke_fallback()
+                    return res
+                service = self._require(self.sst_service, "sst")
+                return await service.get_sst(latitude=latitude, longitude=longitude, at=at)
+            if source == "chlorophyll":
+                if self.chlorophyll_snapshot_manager is not None:
+                    res = await self.chlorophyll_snapshot_manager.get_chlorophyll(
+                        latitude=latitude, longitude=longitude, at=at
+                    )
+                    if isinstance(res, RefreshAcceptedResponse) and fallback is not None:
+                        return await _invoke_fallback()
+                    return res
+                service = self._require(self.chlorophyll_service, "chlorophyll")
+                return await service.get_chlorophyll(
                     latitude=latitude, longitude=longitude, at=at
                 )
-            service = self._require(self.sst_service, "sst")
-            return await service.get_sst(latitude=latitude, longitude=longitude, at=at)
-        if source == "chlorophyll":
-            if self.chlorophyll_snapshot_manager is not None:
-                return await self.chlorophyll_snapshot_manager.get_chlorophyll(
-                    latitude=latitude, longitude=longitude, at=at
-                )
-            service = self._require(self.chlorophyll_service, "chlorophyll")
-            return await service.get_chlorophyll(
-                latitude=latitude, longitude=longitude, at=at
-            )
-        if source == "waves":
-            service = self._require(self.wave_service, "waves")
-            return await service.get_waves(latitude=latitude, longitude=longitude, at=at)
-        if source == "wind":
-            if at > comparison_now:
-                service = self._require(self.forecast_wind_service, "wind_forecast")
-                return await service.get_forecast(
-                    latitude=latitude, longitude=longitude, at=at
-                )
-            service = self._require(self.recent_wind_service, "wind_recent")
-            return await service.get_wind(latitude=latitude, longitude=longitude, at=at)
-        if source == "currents":
-            service = self._require(self.current_service, "currents")
-            return await service.get_current(latitude=latitude, longitude=longitude, at=at)
-        service = self._require(self.sea_level_service, "sea_level")
-        return await service.get_sea_level(latitude=latitude, longitude=longitude, at=at)
+            if source == "waves":
+                service = self._require(self.wave_service, "waves")
+                return await service.get_waves(latitude=latitude, longitude=longitude, at=at)
+            if source == "wind":
+                if at > comparison_now:
+                    service = self._require(self.forecast_wind_service, "wind_forecast")
+                    return await service.get_forecast(
+                        latitude=latitude, longitude=longitude, at=at
+                    )
+                service = self._require(self.recent_wind_service, "wind_recent")
+                return await service.get_wind(latitude=latitude, longitude=longitude, at=at)
+            if source == "currents":
+                service = self._require(self.current_service, "currents")
+                return await service.get_current(latitude=latitude, longitude=longitude, at=at)
+            service = self._require(self.sea_level_service, "sea_level")
+            return await service.get_sea_level(latitude=latitude, longitude=longitude, at=at)
+
+        async def _invoke_fallback() -> Any:
+            if fallback is None:
+                raise EvidenceSourceNotConfiguredError(NOT_CONFIGURED_CODES.get(source, f"{source.upper()}_SOURCE_NOT_CONFIGURED"))
+            if source == "pfz":
+                return await fallback.get_nearest(latitude=latitude, longitude=longitude, at=at)
+            if source == "sst":
+                return await fallback.get_sst(latitude=latitude, longitude=longitude, at=at)
+            if source == "chlorophyll":
+                return await fallback.get_chlorophyll(latitude=latitude, longitude=longitude, at=at)
+            if source == "waves":
+                return await fallback.get_waves(latitude=latitude, longitude=longitude, at=at)
+            if source == "wind":
+                if at > comparison_now and hasattr(fallback, "get_forecast"):
+                    return await fallback.get_forecast(latitude=latitude, longitude=longitude, at=at)
+                if hasattr(fallback, "get_wind"):
+                    return await fallback.get_wind(latitude=latitude, longitude=longitude, at=at)
+                return await fallback.get_forecast(latitude=latitude, longitude=longitude, at=at)
+            if source == "currents":
+                return await fallback.get_current(latitude=latitude, longitude=longitude, at=at)
+            if source == "sea_level":
+                return await fallback.get_sea_level(latitude=latitude, longitude=longitude, at=at)
+            return await fallback.get_sea_level(latitude=latitude, longitude=longitude, at=at)
+
+        if fallback is not None:
+            # Check if primary is unconfigured
+            if source == "sst" and self.sst_service is None and self.sst_snapshot_manager is None:
+                return await _invoke_fallback()
+            if source == "chlorophyll" and self.chlorophyll_service is None and self.chlorophyll_snapshot_manager is None:
+                return await _invoke_fallback()
+            if source == "waves" and self.wave_service is None:
+                return await _invoke_fallback()
+            if source == "wind" and (self.recent_wind_service is None and self.forecast_wind_service is None):
+                return await _invoke_fallback()
+            if source == "currents" and self.current_service is None:
+                return await _invoke_fallback()
+            if source == "sea_level" and self.sea_level_service is None:
+                return await _invoke_fallback()
+
+            try:
+                async with asyncio.timeout(self.source_timeout_seconds):
+                    return await _invoke_primary()
+            except Exception:
+                return await _invoke_fallback()
+
+        return await _invoke_primary()
 
     async def aggregate(self, request: EvidenceRequest) -> MarineEvidenceResponse:
         comparison_now = self._utc(self._now())

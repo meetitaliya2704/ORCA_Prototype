@@ -68,6 +68,16 @@ export function useJourney() {
     }
   }, []);
 
+  const reset = useCallback(() => {
+    controller.current?.abort();
+    lastRequest.current = null;
+    setResult(null);
+    setMode("live");
+    setPending(false);
+    setError(null);
+    mutation.reset();
+  }, [mutation]);
+
   useEffect(() => () => controller.current?.abort(), []);
 
   return {
@@ -80,5 +90,6 @@ export function useJourney() {
     retry: () => lastRequest.current && submit(lastRequest.current),
     cancel: () => controller.current?.abort(),
     loadDemo,
+    reset,
   };
 }

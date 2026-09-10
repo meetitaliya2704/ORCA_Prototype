@@ -237,3 +237,83 @@ class SQLAlchemyAssistantPersistence:
                 return AssistantIntent(value) if value is not None else None
         except SQLAlchemyError as exc:
             raise DatabaseOperationError(sanitize_database_error(exc)) from None
+
+
+class InMemoryAssistantPersistence:
+    """In-memory persistence implementation for local runs and rapid prototype demonstrations."""
+
+    def __init__(self) -> None:
+        self._conversations: dict[UUID, list[dict[str, Any]]] = {}
+        self._sources: dict[UUID, dict[str, Any]] = {}
+        self._intents: dict[UUID, AssistantIntent] = {}
+
+    async def begin_turn(
+        self,
+        *,
+        conversation_id: UUID | None,
+        content: str,
+        language: str,
+        mode: ConversationMode,
+        model: str | None,
+        integration: str,
+    ) -> AssistantTurnReferences:
+        from uuid import uuid4
+
+        conv_id = conversation_id or uuid4()
+        user_msg_id = uuid4()
+        run_id = uuid4()
+        if conv_id not in self._conversations:
+            self._conversations[conv_id] = []
+        self._conversations[conv_id].append({
+            "message_id": user_msg_id,
+            "role": "user",
+            "content": content,
+        })
+        return AssistantTurnReferences(conv_id, user_msg_id, run_id)
+
+    async def finalize_turn(
+        self,
+        *,
+        references: AssistantTurnReferences,
+        assistant_content: str,
+        intent: AssistantIntent,
+        run_status: AssistantRunStatus,
+        latency_ms: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        evidence_quality: EvidenceQuality | None,
+        result: dict[str, Any],
+        sources: dict[str, Any],
+        warnings: list[Any],
+        demonstration: bool,
+        retrieved_at: datetime,
+        valid_at: datetime | None,
+    ) -> UUID:
+        from uuid import uuid4
+
+        assistant_msg_id = uuid4()
+        self._conversations.setdefault(references.conversation_id, []).append({
+            "message_id": assistant_msg_id,
+            "role": "assistant",
+            "content": assistant_content,
+        })
+        self._sources[references.conversation_id] = dict(sources)
+        self._intents[references.conversation_id] = intent
+        return assistant_msg_id
+
+    async def fail_turn(
+        self,
+        *,
+        references: AssistantTurnReferences,
+        error_code: str,
+        latency_ms: int,
+        cancelled: bool = False,
+    ) -> None:
+        pass
+
+    async def latest_sources(self, conversation_id: UUID) -> dict[str, Any]:
+        return dict(self._sources.get(conversation_id, {}))
+
+    async def latest_intent(self, conversation_id: UUID) -> AssistantIntent | None:
+        return self._intents.get(conversation_id)
+

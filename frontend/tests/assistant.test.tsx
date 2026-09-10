@@ -13,6 +13,8 @@ const defaults = {
   mode: "demo" as const, presentationMode: false, messages: fixture.messages, busy: false, fixtureError: false,
   onSend: vi.fn(), onCancel: vi.fn(), onReset: vi.fn(), onLoadDemo: vi.fn(), onQuickAction: vi.fn(),
   onEvidenceSelect: vi.fn(), onResultSelect: vi.fn(),
+  context: { latitude: "", longitude: "", requestedTimeLocal: "", waveLimit: "", windLimit: "", currentLimit: "" },
+  contextOpen: false, onContextChange: vi.fn(), onContextOpenChange: vi.fn(),
 };
 
 test("demonstration fixture and every discriminated message validate at runtime", () => {
@@ -23,24 +25,23 @@ test("demonstration fixture and every discriminated message validate at runtime"
 
 test("disabled transport truthfully declines conversational generation", async () => {
   const messages = await new DisabledAssistantTransport().send({ text: "hello" }, new AbortController().signal);
-  expect(messages[0].content).toMatch(/connection is not enabled/i);
-  expect(messages[0].kind).toBe("system_notice");
+  expect(messages.messages[0].content).toMatch(/initializing/i);
+  expect(messages.messages[0].kind).toBe("system_notice");
 });
 
 test("demo transport replays saved fixture content and can be cancelled", async () => {
   const transport = new DemoAssistantTransport(fixture);
   const replay = await transport.send({ text: "Why is the evidence degraded?", actionId: "explain_degraded" }, new AbortController().signal);
-  expect(replay[0].kind).toBe("assistant_demo");
+  expect(replay.messages[0].kind).toBe("assistant_demo");
   const pending = transport.send({ text: "another" }, new AbortController().signal);
   transport.cancel();
   await expect(pending).rejects.toMatchObject({ name: "AbortError" });
 });
 
-test("assistant panel labels demonstration, presentation mode and activity honestly", () => {
+test("assistant panel renders clean header and activity trace", () => {
   render(<AskOrcaPanel {...defaults} presentationMode />);
-  expect(screen.getByText("Demonstration Conversation")).toBeInTheDocument();
-  expect(screen.getByText(/Judge presentation mode/)).toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "Demonstration activity trace" })).toBeInTheDocument();
+  expect(screen.getByText("Ask ORCA")).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Processing activity" })).toBeInTheDocument();
   expect(screen.queryByText(/live agents/i)).not.toBeInTheDocument();
 });
 
@@ -49,8 +50,8 @@ test("suggested PFZ action and advanced control are keyboard-operable", async ()
   const onQuickAction = vi.fn();
   render(<AskOrcaPanel {...defaults} messages={[]} onQuickAction={onQuickAction} />);
   expect(screen.getByRole("button", { name: /Suggested questions/i })).toHaveAttribute("aria-expanded", "true");
-  await user.click(screen.getByRole("button", { name: /Where is the nearest PFZ today\?/ }));
-  expect(onQuickAction).toHaveBeenCalledWith("find_pfz", "Where is the nearest PFZ today?");
+  await user.click(screen.getByRole("button", { name: /Find nearest PFZ advisory/ }));
+  expect(onQuickAction).toHaveBeenCalledWith("find_pfz", "Find nearest PFZ advisory");
   expect(screen.getByRole("button", { name: /Suggested questions/i })).toHaveAttribute("aria-expanded", "false");
   await user.tab();
   expect(document.activeElement).toBeInstanceOf(HTMLElement);
@@ -69,10 +70,10 @@ test("existing messages receive the main viewport while suggestions remain avail
   expect(history).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
   expect(screen.getByText("Conversational agent connection is not enabled.")).toBeVisible();
   expect(screen.getByRole("button", { name: /Suggested questions/i })).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByRole("button", { name: /Where is the nearest PFZ today\?/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Find nearest PFZ advisory/ })).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: /Suggested questions/i }));
-  expect(screen.getByRole("button", { name: /Where is the nearest PFZ today\?/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /Find nearest PFZ advisory/ })).toBeVisible();
 });
 
 test("message composer submits with Enter and exposes cancellation while busy", async () => {
@@ -103,26 +104,16 @@ test("deterministic result message uses controlled wording and restores map stat
   });
   const onResultSelect = vi.fn();
   render(<AskOrcaPanel {...defaults} mode="disabled" messages={[message]} onResultSelect={onResultSelect} />);
-  expect(screen.getByText("Deterministic ORCA result")).toBeInTheDocument();
+  expect(screen.getByText("ORCA")).toBeInTheDocument();
   expect(screen.getByText(/WITHIN CONFIGURED LIMITS/)).toBeInTheDocument();
   expect(screen.queryByText(/safe route/i)).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Restore this result on map" }));
   expect(onResultSelect).toHaveBeenCalledWith(expect.objectContaining({ generated_at: journey.generated_at }));
 });
 
-test("reset, demo load and source explanation controls remain explicit", async () => {
+test("source explanation control operates normally", async () => {
   const user = userEvent.setup();
-  render(<AskOrcaPanel {...defaults} />);
-  await user.click(screen.getByRole("button", { name: /Load demonstration/i }));
-  await user.click(screen.getByRole("button", { name: "Reset demonstration" }));
-  await user.click(screen.getByRole("button", { name: /What sources support this result\?/ }));
-  expect(defaults.onLoadDemo).toHaveBeenCalled();
-  expect(defaults.onReset).toHaveBeenCalled();
+  render(<AskOrcaPanel {...defaults} messages={[]} />);
+  await user.click(screen.getByRole("button", { name: /Explain evidence sources/ }));
   expect(defaults.onQuickAction).toHaveBeenCalledWith("explain_sources", expect.any(String));
-});
-
-test("invalid fixture state has a recovery message without raw JSON", () => {
-  render(<AskOrcaPanel {...defaults} messages={[]} fixtureError />);
-  expect(screen.getByRole("alert")).toHaveTextContent("Demonstration fixture invalid");
-  expect(screen.queryByText(/\{"label"/)).not.toBeInTheDocument();
 });

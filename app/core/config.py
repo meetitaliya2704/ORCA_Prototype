@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     assistant_enabled: bool = False
     assistant_gemini_routing_enabled: bool = False
-    assistant_model: Literal["gemini-3.7-flash"] = "gemini-3.7-flash"
+    assistant_model: str = Field(default="gemini-3.7-flash", min_length=1)
     assistant_model_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
     assistant_graph_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
     assistant_max_scientific_service_calls: int = Field(default=4, ge=1, le=4)
@@ -319,10 +319,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def assistant_configuration_is_complete(self) -> "Settings":
-        if self.assistant_enabled and not self.database_enabled:
-            raise ValueError(
-                "DATABASE_ENABLED=true is required when ASSISTANT_ENABLED=true"
-            )
         if self.assistant_gemini_routing_enabled and not self.assistant_enabled:
             raise ValueError("ASSISTANT_ENABLED=true is required for Gemini routing")
         if self.assistant_gemini_routing_enabled and (

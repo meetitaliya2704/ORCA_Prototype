@@ -1,9 +1,10 @@
 # ORCA frontend
 
-This directory contains the F0/F1 Next.js prototype for ORCA's deterministic
-E3 nearest-PFZ journey. F1 adds a truthful conversational presentation layer;
-it calls no LLM and does not implement LangGraph. The browser calls FastAPI
-only and never calls INCOIS, Copernicus, or ECMWF directly.
+This directory contains ORCA's assistant-first Next.js workspace. It preserves
+the deterministic E3 nearest-PFZ journey and now connects the conversation UI
+to the backend's typed `POST /v1/assistant/query` endpoint. The browser calls
+FastAPI only and never calls Gemini, Supabase, INCOIS, Copernicus, or ECMWF
+directly.
 
 ## Requirements and setup
 
@@ -30,19 +31,24 @@ the sanitized saved E3 fixture. It is labelled **Demonstration Snapshot**, its
 original generated time remains visible, and it is never used silently after
 a live failure.
 
-`NEXT_PUBLIC_ORCA_ASSISTANT_MODE` accepts only `disabled` or `demo`. Disabled
-mode explains that conversational understanding is not connected. Demo mode
-replays the sanitized `public/demo/conversation.json` fixture, always labelled
-**Demonstration Conversation** with its original data time. F1 has no API or
-live-assistant mode. `NEXT_PUBLIC_ORCA_PRESENTATION_MODE=true` makes judge-demo
-controls prominent without auto-loading the fixture or hiding limitations.
+`NEXT_PUBLIC_ORCA_ASSISTANT_MODE` accepts `disabled`, `demo`, or `live`.
+Disabled mode keeps deterministic E3 tools available. Demo mode replays the
+sanitized `public/demo/conversation.json` fixture, always labelled
+**Demonstration Conversation** with its original data time. Live mode calls
+FastAPI and validates every response with Zod. It preserves the returned
+conversation ID for follow-up turns, supports English, Hindi and Gujarati
+request preferences, and exposes deterministic fallback without presenting it
+as a Gemini response. `NEXT_PUBLIC_ORCA_PRESENTATION_MODE=true` improves
+projector readability without auto-loading a fixture or hiding limitations.
 
 ## Conversational architecture
 
-Ask ORCA supports runtime-validated user, assistant demonstration,
-deterministic result, clarification, tool activity, warning, error, and system
-notice messages. `AssistantTransport` separates presentation from future G0
-connectivity; F1 implements only disabled and demo transports.
+Ask ORCA supports runtime-validated user, live assistant, assistant
+demonstration, deterministic result, clarification, tool activity, warning,
+error, and system-notice messages. `AssistantTransport` keeps disabled, demo,
+and HTTP transports separate. The HTTP transport sends only validated query
+context and recent messages to ORCA; provider and database credentials remain
+backend-only.
 
 Predefined actions open the existing Advanced query parameters or replay saved
 explanations. Live E3 responses appear as **Deterministic ORCA result**, update
@@ -50,8 +56,14 @@ the MapLibre map, and link evidence chips to authoritative structured cards.
 The deterministic activity trace shows only response-proven operations; the
 specialist demonstration trace is explicitly demo data, not hidden reasoning.
 
-Desktop uses a conversation-first 52/48 split between Ask ORCA and the
-authoritative answer/evidence panel. The map is closed by default and its
+Desktop uses a compact collapsible sidebar and a wider, roughly 64/36
+conversation-first split between Ask ORCA and the authoritative
+answer/evidence panel. Query context opens initially, suggested questions are
+not clipped by the composer, and the conversation card can grow with its
+controls. Tablet stacks the evidence panel below the conversation, while
+mobile keeps the composer reachable and follows conversation → answer →
+evidence → optional map. The map
+is closed by default and its
 MapLibre JavaScript is lazy-loaded only after a spatial result exposes **View
 on map**. A lightweight coordinate, distance, bearing, and direction summary
 remains readable without it. The accessible map dialog returns focus when
@@ -61,6 +73,12 @@ On mobile the reading order is Ask ORCA, deterministic answer, evidence and
 warnings, optional View on map, then Advanced query parameters. The map opens
 full-screen rather than displacing the answer. Tablet retains the same
 assistant-first hierarchy.
+
+The assistant response contract intentionally contains compact source
+summaries rather than complete source payloads. The live result panel displays
+only the values supplied by that contract. Advanced deterministic E3 controls
+remain available for full numeric SST, chlorophyll, waves, wind, currents and
+sea-level evidence cards.
 
 ## Commands
 
