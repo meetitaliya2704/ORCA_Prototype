@@ -1,4 +1,33 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+:root {
+  --background: #F4F8FB;
+  --surface: #FFFFFF;
+  --surface-raised: #fbfdfe;
+  --surface-muted: #E8F2F8;
+  --foreground: #0B3A4A;
+  --muted-foreground: #4A6B7C;
+  --primary: #0891B2;
+  --primary-hover: #06728c;
+  --secondary: #087e83;
+  --secondary-hover: #066b70;
+  --information: #0891B2;
+  --information-surface: #E8F2F8;
+  --information-border: #C9DCE8;
+  --caution: #D97706;
+  --caution-surface: #fff3d7;
+  --caution-border: #e7c676;
+  --danger: #DC2626;
+  --danger-surface: #ffebe9;
+  --success: #059669;
+  --success-surface: #e5f5eb;
+  --border: #C9DCE8;
+  --border-strong: #9db2bc;
+  --ring: #0891B2;
+  --radius: 0.7rem;
+  --font-data: "Fira Code", "SFMono-Regular", Consolas, monospace;
+}
 
 @theme {
   --color-bg: #F4F8FB;
@@ -15,6 +44,15 @@
   --font-body: var(--font-inter), sans-serif;
 }
 
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+}
+
 body {
   background-color: var(--color-bg);
   color: var(--color-text-primary);
@@ -23,6 +61,49 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--color-bg); }
 ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+
+.long-token { min-width: 0; max-width: 100%; word-break: break-word; overflow-wrap: anywhere; }
+.token-break { min-width: 0; max-width: 100%; word-break: break-all; overflow-wrap: anywhere; }
+
+.conversation-panel { height: auto; border-color: var(--border); }
+.conversation-heading { background: var(--surface); }
+.assistant-context { flex: none; border-bottom: 1px solid var(--border); background: #f8fbfc; }
+.assistant-context-toggle { display: flex; min-height: 46px; width: 100%; cursor: pointer; align-items: center; gap: 0.65rem; padding: 0.55rem 1rem; text-align: left; color: var(--foreground); }
+.assistant-context-toggle:hover { background: var(--surface-muted); }
+.assistant-context-input { min-height: 44px; width: 100%; border: 1px solid var(--border); border-radius: 0.55rem; background: white; padding: 0.55rem 0.7rem; color: var(--foreground); font-family: var(--font-data); font-size: 0.9rem; }
+.assistant-context-input[aria-invalid="true"] { border-color: var(--danger); }
+.conversation-scroll { min-height: 14rem; max-height: 60dvh; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.suggestion-list { overscroll-behavior: contain; scrollbar-gutter: stable; }
+.welcome-state { background: var(--surface); }
+.message-card { min-width: 0; max-width: 92%; border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem 1rem; word-break: break-word; overflow-wrap: anywhere; box-shadow: 0 1px 2px rgb(8 43 61 / 0.04); }
+.message-user { margin-left: auto; border-color: color-mix(in srgb, var(--information) 35%, var(--border)); border-bottom-right-radius: 0.2rem; background: var(--information-surface); }
+.message-orca { margin-right: auto; border-bottom-left-radius: 0.2rem; background: white; }
+.message-error { margin-right: auto; border-color: var(--danger); background: var(--danger-surface); }
+.prompt-card { display: flex; min-height: 52px; cursor: pointer; align-items: center; justify-content: space-between; gap: 0.75rem; border: 1px solid var(--border); border-radius: 0.65rem; background: white; padding: 0.65rem 0.8rem; text-align: left; font-size: 0.8rem; font-weight: 700; transition: border-color 160ms ease, background-color 160ms ease; }
+.prompt-card:hover { border-color: var(--primary); background: #f5fbfb; }
+.composer-shell { position: sticky; bottom: 0; z-index: 4; background: rgb(255 255 255 / 0.96); backdrop-filter: blur(8px); }
+.composer-box { overflow: hidden; border: 1px solid var(--border-strong); border-radius: 0.8rem; background: white; box-shadow: 0 3px 12px rgb(8 43 61 / 0.08); }
+.composer-box:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px rgb(8 145 178 / 0.16); }
+.composer-input { display: block; width: 100%; min-height: 4.75rem; resize: vertical; border: 0; background: transparent; padding: 0.8rem 0.9rem; color: var(--foreground); font-size: 1rem; line-height: 1.5; outline: none; }
+.processing-indicator { display: flex; min-width: 2.5rem; align-items: center; gap: 0.28rem; }
+.processing-indicator span { width: 0.42rem; height: 0.42rem; border-radius: 999px; background: var(--secondary); animation: processing-pulse 1.15s ease-in-out infinite; }
+.processing-indicator span:nth-child(2) { animation-delay: 120ms; }
+.processing-indicator span:nth-child(3) { animation-delay: 240ms; }
+@keyframes processing-pulse { 0%, 70%, 100% { opacity: 0.3; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-3px); } }
+
+.orca-map-container { position: absolute; inset: 0; width: 100%; height: 100%; }
+.map-frame { height: clamp(22rem, 54vh, 42rem); }
+.map-summary { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 1rem; }
+.map-panel { min-width: 0; }
+
+@layer base {
+  .maplibregl-popup-content { @apply bg-transparent! shadow-none! p-0! rounded-none!; }
+  .maplibregl-popup-tip { @apply hidden!; }
+  .maplibregl-ctrl-attrib { @apply bg-white! text-slate-500! border-slate-200! rounded-md! border! shadow-sm!; }
+  .maplibregl-ctrl-attrib a { @apply text-slate-500!; }
+  .maplibregl-ctrl-attrib a:hover { @apply text-slate-800!; }
+  .maplibregl-ctrl-attrib-button { @apply bg-transparent!; }
+}
 
 .hero-slide {
   position: absolute;

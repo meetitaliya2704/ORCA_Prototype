@@ -1,0 +1,44 @@
+{
+  "label": "Demonstration Conversation",
+  "original_data_timestamp": "2026-08-27T12:00:01Z",
+  "demonstration_created_at": "2026-09-06T12:00:00Z",
+  "source_fixture": "pfz-journey.json",
+  "messages": [
+    {
+      "id": "demo-notice", "kind": "system_notice", "role": "system", "mode": "demonstration",
+      "content": "Demonstration Conversation using saved E3 data generated at 2026-08-27T12:00:01Z. This is not live data.", "created_at": "2026-09-06T12:00:00Z",
+      "evidence_references": [], "warnings": [], "suggested_actions": []
+    },
+    {
+      "id": "demo-user-pfz", "kind": "user", "role": "user", "mode": "demonstration",
+      "content": "Find the nearest valid PFZ and compare conditions with my configured limits.", "created_at": "2026-09-06T12:00:00Z",
+      "evidence_references": [], "warnings": [], "suggested_actions": []
+    },
+    {
+      "id": "demo-activity", "kind": "tool_activity", "role": "system", "mode": "demonstration",
+      "content": "Saved demonstration workflow activity.", "created_at": "2026-09-06T12:00:01Z",
+      "tool_activity": [
+        { "id": "coordinator", "label": "Coordinator", "status": "complete" },
+        { "id": "pfz", "label": "PFZ Specialist", "status": "complete" },
+        { "id": "marine", "label": "Marine Evidence Specialist", "status": "complete" },
+        { "id": "assessment", "label": "Operational Assessment", "status": "complete" },
+        { "id": "verification", "label": "Evidence Verification", "status": "partial", "detail": "Official warning coverage is not integrated." }
+      ],
+      "evidence_references": [], "warnings": [], "suggested_actions": []
+    },
+    {
+      "id": "demo-answer", "kind": "assistant_demo", "role": "assistant", "mode": "demonstration",
+      "content": "A saved valid PFZ advisory was found near the demonstration origin. The deterministic journey outcome is PFZ_AVAILABLE_CAUTION: destination wave evidence is near the supplied limit, and origin chlorophyll and sea-level evidence are degraded. The straight line on the map is a reference only; no route or geofence was evaluated.",
+      "created_at": "2026-09-06T12:00:02Z",
+      "tool_activity": [],
+      "evidence_references": [
+        { "source": "pfz", "label": "INCOIS PFZ", "state": "available", "valid_time": "2026-08-27T18:29:59Z", "freshness": "saved fixture", "location": "destination" },
+        { "source": "sst", "label": "Copernicus SST", "state": "available", "valid_time": "2026-08-27T00:00:00Z", "freshness": "fresh", "location": "origin" },
+        { "source": "chlorophyll", "label": "Copernicus chlorophyll", "state": "degraded", "valid_time": "2026-08-26T00:00:00Z", "freshness": "fresh", "location": "origin" },
+        { "source": "waves", "label": "Copernicus waves", "state": "available", "valid_time": "2026-08-27T12:00:00Z", "freshness": "fresh", "location": "destination" }
+      ],
+      "warnings": ["Official meteorological and maritime warnings are not fully integrated.", "A PFZ advisory does not guarantee fish presence."],
+      "suggested_actions": ["explain_degraded", "explain_sources", "explain_reference_line"]
+    }
+  ]
+}

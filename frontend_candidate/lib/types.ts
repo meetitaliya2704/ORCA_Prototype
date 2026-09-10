@@ -90,6 +90,8 @@ export interface MapMarker {
   subtitle?: string;
   x: number; // percentage position (0-100)
   y: number;
+  latitude?: number;
+  longitude?: number;
   severity?: "high" | "medium" | "low";
   details?: {
     speed?: string;
