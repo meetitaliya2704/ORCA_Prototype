@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: orca-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore
+    envVars:
+      - key: APP_NAME
+        value: ORCA Base API
+      - key: APP_ENV
+        value: production
+      - key: API_PREFIX
+        value: /v1
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: ASSISTANT_ENABLED
+        value: "true"
+      - key: ASSISTANT_GEMINI_ROUTING_ENABLED
+        value: "true"
+      - key: ASSISTANT_MODEL
+        value: gemini-3.7-flash
+      - key: GOOGLE_API_KEY
+        sync: false
+    healthCheckPath: /health
+
+  - type: web
+    name: orca-frontend
+    runtime: node
+    rootDir: frontend_candidate
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    plan: starter
+    region: singapore
+    envVars:
+      - key: NEXT_PUBLIC_ORCA_API_BASE_URL
+        fromService:
+          name: orca-backend
+          type: web
+          property: host
+      - key: NEXT_PUBLIC_MAP_STYLE_URL
+        value: https://tiles.openfreemap.org/styles/liberty
+      - key: NEXT_PUBLIC_ORCA_ASSISTANT_MODE
+        value: live
+      - key: NEXT_PUBLIC_ORCA_DEMO_MODE
+        value: "false"
+      - key: NEXT_PUBLIC_ORCA_PRESENTATION_MODE
+        value: "false"
+
