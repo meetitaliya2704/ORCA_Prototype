@@ -544,11 +544,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.assistant_service = None
     if settings.assistant_enabled:
         try:
+            from app.agents.explainer import LLMResponseExplainer
             from app.agents.graph import AssistantServices, ORCAAssistantGraph
             from app.agents.intents import (
                 DeterministicIntentRouter,
                 FallbackIntentRouter,
                 GeminiFunctionIntentRouter,
+                OpenRouterFunctionIntentRouter,
             )
             from app.services.assistant_store import (
                 InMemoryAssistantPersistence,
@@ -556,8 +558,40 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
 
             fallback_router = DeterministicIntentRouter()
-            if settings.assistant_gemini_routing_enabled:
-                assert settings.google_api_key is not None
+            provider = settings.orca_assistant_provider.strip().lower()
+            explainer: LLMResponseExplainer | None = None
+
+            if (
+                provider == "openrouter"
+                and settings.openrouter_api_key is not None
+                and settings.openrouter_api_key.get_secret_value().strip()
+            ):
+                router = FallbackIntentRouter(
+                    OpenRouterFunctionIntentRouter(
+                        api_key=settings.openrouter_api_key,
+                        model=settings.orca_assistant_model,
+                        base_url=settings.openrouter_base_url,
+                        timeout_seconds=min(
+                            settings.assistant_model_timeout_seconds, 10.0
+                        ),
+                    ),
+                    fallback_router,
+                )
+                configured_model = settings.orca_assistant_model
+                explainer = LLMResponseExplainer(
+                    provider="openrouter",
+                    api_key=settings.openrouter_api_key,
+                    model=settings.orca_assistant_model,
+                    base_url=settings.openrouter_base_url,
+                    timeout_seconds=min(
+                        settings.assistant_model_timeout_seconds, 12.0
+                    ),
+                )
+            elif (
+                (provider == "gemini" or settings.assistant_gemini_routing_enabled)
+                and settings.google_api_key is not None
+                and settings.google_api_key.get_secret_value().strip()
+            ):
                 router = FallbackIntentRouter(
                     GeminiFunctionIntentRouter(
                         api_key=settings.google_api_key,
@@ -567,6 +601,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     fallback_router,
                 )
                 configured_model = settings.assistant_model
+                explainer = LLMResponseExplainer(
+                    provider="gemini",
+                    api_key=settings.google_api_key,
+                    model=settings.assistant_model,
+                    timeout_seconds=settings.assistant_model_timeout_seconds,
+                )
             else:
                 router = fallback_router
                 configured_model = None
@@ -589,6 +629,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 max_scientific_service_calls=(
                     settings.assistant_max_scientific_service_calls
                 ),
+                explainer=explainer,
             )
         except ImportError:
             raise RuntimeError("ASSISTANT_DEPENDENCY_MISSING") from None

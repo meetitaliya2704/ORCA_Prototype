@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     assistant_max_scientific_service_calls: int = Field(default=4, ge=1, le=4)
     google_api_key: SecretStr | None = None
 
+    orca_assistant_provider: str = Field(default="openrouter", min_length=1)
+    orca_assistant_model: str = Field(
+        default="nex-agi/nex-n2.5-mini:free", min_length=1
+    )
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1", min_length=1
+    )
+    openrouter_api_key: SecretStr | None = None
+
     redis_enabled: bool = False
     redis_url: str | None = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 300
@@ -343,6 +352,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GOOGLE_API_KEY is required when Gemini routing is enabled"
             )
+        if (
+            self.openrouter_api_key is not None
+            and not self.openrouter_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("OPENROUTER_API_KEY must not be empty when provided")
         return self
 
     @model_validator(mode="after")

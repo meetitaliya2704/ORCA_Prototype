@@ -13,7 +13,7 @@ const buttonVariants = cva(
         ghost: "text-[var(--foreground)] hover:bg-[var(--surface-muted)]",
         danger: "bg-[var(--danger)] text-white hover:brightness-90",
       },
-      size: { default: "min-h-11", icon: "size-11 p-0" },
+      size: { default: "min-h-11", sm: "h-8 px-2.5 text-xs", icon: "size-11 p-0" },
     },
     defaultVariants: { variant: "primary", size: "default" },
   },

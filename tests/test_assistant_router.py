@@ -1,20 +1,29 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from pydantic import SecretStr, ValidationError
 
 from app.agents.intents import (
+    DeterministicIntentRouter,
+    FallbackIntentRouter,
     GeminiFunctionIntentRouter,
     GeminiRouterError,
     GeminiRouterOutputError,
+    OpenRouterError,
+    OpenRouterFunctionIntentRouter,
+    OpenRouterOutputError,
     _map_gemini_error,
+    _map_openrouter_error,
     validated_required_information,
 )
 from app.schemas.assistant import (
     AssistantRequest,
     IntentRoutingResult,
     RequiredInformation,
+    RoutingMode,
 )
 
 
@@ -244,4 +253,301 @@ def test_gemini_errors_detects_resource_exhausted_string():
     mapped = _map_gemini_error(error)
     assert mapped.code == "ASSISTANT_ROUTER_RATE_LIMITED"
     assert mapped.retryable is True
+
+
+async def test_openrouter_router_forces_tool_and_parses_tool_call():
+    captured_requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        data = json.loads(request.content.decode())
+        assert data["model"] == "nex-agi/nex-n2.5-mini:free"
+        assert data["temperature"] == 0.0
+        assert data["max_tokens"] == 250
+        assert data["tool_choice"] == {
+            "type": "function",
+            "function": {"name": "route_request"},
+        }
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["function"]["name"] == "route_request"
+
+        return httpx.Response(
+            200,
+            json={
+                "id": "gen-123",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "id": "call_abc",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "route_request",
+                                        "arguments": json.dumps(
+                                            {
+                                                "intent": "nearest_pfz",
+                                                "confidence": 0.95,
+                                                "required_information": [],
+                                            }
+                                        ),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 80, "completion_tokens": 20},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-openrouter-key"),
+            http_client=client,
+        )
+        req = AssistantRequest(message="Nearest PFZ", latitude=20.5, longitude=72.9)
+        outcome = await router.route(req)
+
+    assert len(captured_requests) == 1
+    assert captured_requests[0].headers["Authorization"] == "Bearer test-openrouter-key"
+    assert captured_requests[0].headers["HTTP-Referer"] == "https://orca-marine.org"
+    assert outcome.routing.intent == "nearest_pfz"
+    assert outcome.routing.confidence == 0.95
+    assert outcome.mode == RoutingMode.OPENROUTER
+    assert outcome.model == "nex-agi/nex-n2.5-mini:free"
+    assert outcome.input_tokens == 80
+    assert outcome.output_tokens == 20
+
+
+async def test_openrouter_router_parses_content_json_fallback():
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        # Model returning markdown json block in message.content instead of tool_calls
+        content = "```json\n{\"intent\": \"marine_conditions\", \"confidence\": 0.9, \"required_information\": []}\n```"
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": content,
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 90, "completion_tokens": 25},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-openrouter-key"),
+            http_client=client,
+        )
+        req = AssistantRequest(message="Check marine conditions", latitude=19.0, longitude=72.8)
+        outcome = await router.route(req)
+
+    assert outcome.routing.intent == "marine_conditions"
+    assert outcome.routing.confidence == 0.9
+    assert outcome.mode == RoutingMode.OPENROUTER
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_code", "retryable"),
+    [
+        (429, "ASSISTANT_ROUTER_RATE_LIMITED", True),
+        (401, "ASSISTANT_ROUTER_AUTHENTICATION_FAILED", False),
+        (403, "ASSISTANT_ROUTER_AUTHENTICATION_FAILED", False),
+        (400, "ASSISTANT_ROUTER_INVALID_REQUEST", False),
+    ],
+)
+async def test_openrouter_router_error_classification(status_code, expected_code, retryable):
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(status_code, text="Error message")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-openrouter-key"),
+            http_client=client,
+        )
+        with pytest.raises(OpenRouterError) as captured:
+            await router.route(AssistantRequest(message="hello"))
+
+    assert captured.value.code == expected_code
+    assert captured.value.retryable is retryable
+
+
+async def test_openrouter_router_automatic_retry_success():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, text="Service Unavailable")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "route_request",
+                                        "arguments": json.dumps(
+                                            {"intent": "nearest_pfz", "confidence": 0.85, "required_information": []}
+                                        ),
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-key"),
+            http_client=client,
+            max_retries=1,
+        )
+        outcome = await router.route(AssistantRequest(message="Nearest PFZ", latitude=20.0, longitude=72.0))
+
+    assert calls == 2
+    assert outcome.routing.intent == "nearest_pfz"
+
+
+async def test_openrouter_router_retry_exhausted_raises_unavailable():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503, text="Service Unavailable")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-key"),
+            http_client=client,
+            max_retries=1,
+        )
+        with pytest.raises(OpenRouterError) as captured:
+            await router.route(AssistantRequest(message="Nearest PFZ"))
+
+    assert calls == 2
+    assert captured.value.code == "ASSISTANT_ROUTER_UNAVAILABLE"
+
+
+async def test_openrouter_router_invalid_output_raises_output_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "I am not able to parse this."
+                        }
+                    }
+                ]
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-key"),
+            http_client=client,
+        )
+        with pytest.raises(OpenRouterOutputError):
+            await router.route(AssistantRequest(message="Nearest PFZ"))
+
+
+async def test_openrouter_fallback_order_to_deterministic_router():
+    """Nex-N2.5-Mini -> failure / invalid output / 429 -> ORCA deterministic router."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(429, text="Rate limit exceeded")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        primary = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-key"),
+            http_client=client,
+        )
+        fallback = DeterministicIntentRouter()
+        chained_router = FallbackIntentRouter(primary=primary, fallback=fallback)
+
+        outcome = await chained_router.route(
+            AssistantRequest(message="where is the nearest pfz", latitude=20.0, longitude=72.0)
+        )
+
+    assert outcome.mode == RoutingMode.DETERMINISTIC
+    assert outcome.routing.intent == "nearest_pfz"
+    assert outcome.warning is not None
+    assert outcome.warning.code == "ASSISTANT_ROUTER_RATE_LIMITED"
+    assert "OpenRouter" in outcome.warning.message
+
+
+async def test_openrouter_router_caches_identical_queries():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "route_request",
+                                        "arguments": json.dumps(
+                                            {"intent": "marine_conditions", "confidence": 0.95, "required_information": []}
+                                        ),
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 15},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = OpenRouterFunctionIntentRouter(
+            api_key=SecretStr("test-key"),
+            http_client=client,
+        )
+        req = AssistantRequest(message="Check marine conditions", latitude=19.0, longitude=72.8)
+
+        # Call 1: calls mock endpoint
+        res1 = await router.route(req)
+        assert calls == 1
+        assert res1.input_tokens == 120
+        assert res1.output_tokens == 15
+
+        # Call 2: identical query should hit cache (0 tokens, no mock call)
+        res2 = await router.route(req)
+        assert calls == 1
+        assert res2.input_tokens == 0
+        assert res2.output_tokens == 0
+        assert res2.routing.intent == "marine_conditions"
+
 

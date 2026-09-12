@@ -30,7 +30,7 @@ export function WorkspaceSidebar({
   const navigation = (compact: boolean) => <nav aria-label="ORCA workspace" className="grid gap-2 p-3">
     {items.map((item) => {
       const Icon = item.icon;
-      const disabled = item.id === "demo" && !demoEnabled;
+      const disabled = false;
       return <button
         key={item.id}
         type="button"

@@ -23,6 +23,7 @@ from app.agents.evidence import (
     summarize_evidence,
     summarize_pfz,
 )
+from app.agents.explainer import LLMResponseExplainer
 from app.agents.intents import (
     IntentRouter,
     RouterOutcome,
@@ -112,6 +113,7 @@ class ORCAAssistantGraph:
         max_scientific_service_calls: int = 4,
         now: Callable[[], datetime] | None = None,
         demo_fixture: AssistantDemoFixture | None = None,
+        explainer: LLMResponseExplainer | None = None,
     ) -> None:
         self.router = router
         self.persistence = persistence
@@ -121,6 +123,7 @@ class ORCAAssistantGraph:
         self.max_scientific_service_calls = max_scientific_service_calls
         self._now = now or (lambda: datetime.now(UTC))
         self.demo_fixture = demo_fixture or load_demonstration_fixture()
+        self.explainer = explainer
         self.graph = self._compile_graph()
 
     def _compile_graph(self):
@@ -824,6 +827,22 @@ class ORCAAssistantGraph:
         else:
             status = AssistantResponseStatus.COMPLETED
             answer = format_default_greeting(lang)
+
+        if self.explainer is not None and request.mode == AssistantMode.LIVE:
+            try:
+                natural_answer = await self.explainer.explain(
+                    message=request.message,
+                    language=lang,
+                    intent=routed.intent,
+                    deterministic_answer=answer,
+                    status=status,
+                    recent_messages=request.recent_messages,
+                )
+                if natural_answer and natural_answer.strip():
+                    answer = natural_answer.strip()
+            except Exception:
+                pass
+
         return {
             "completion_status": status,
             "answer": answer,

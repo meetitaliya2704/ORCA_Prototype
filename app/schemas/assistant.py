@@ -100,6 +100,7 @@ class IntentRoutingResult(BaseModel):
 
 
 class RoutingMode(StrEnum):
+    OPENROUTER = "openrouter_function_call"
     GEMINI = "gemini_function_call"
     DETERMINISTIC = "deterministic_fallback"
     DEMONSTRATION = "demonstration_fixture"

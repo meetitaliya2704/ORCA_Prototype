@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import json
 from typing import Any, Protocol
 
+import httpx
 from pydantic import SecretStr, ValidationError
 
 from app.agents.capabilities import AssistantIntent
@@ -50,6 +52,25 @@ class GeminiRouterError(RuntimeError):
 
 
 class GeminiRouterOutputError(GeminiRouterError):
+    def __init__(self) -> None:
+        super().__init__("ASSISTANT_ROUTER_INVALID_OUTPUT", retryable=False)
+
+
+class OpenRouterError(RuntimeError):
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        super().__init__("The OpenRouter intent router is unavailable")
+        self.code = code
+        self.retryable = retryable
+        self.retry_after_seconds = retry_after_seconds
+
+
+class OpenRouterOutputError(OpenRouterError):
     def __init__(self) -> None:
         super().__init__("ASSISTANT_ROUTER_INVALID_OUTPUT", retryable=False)
 
@@ -434,9 +455,21 @@ class GeminiFunctionIntentRouter:
                 "LangChain core dependency is not installed"
             ) from None
         policy = (
-            "Invoke route_request exactly once. Classify intent only. Use only canonical "
-            "required-information identifiers. Do not invent coordinates, measurements, "
-            "alerts, evidence, or capability availability."
+            "You are the intent classifier for ORCA, a marine decision-support assistant. "
+            "Understand the user request in natural language (in English, Hindi, Gujarati, Marathi, Tamil, Telugu, Malayalam, Bengali, etc.) "
+            "and invoke route_request exactly once.\n\n"
+            "Intent guide:\n"
+            "- nearest_pfz: Where to fish, finding fish, Potential Fishing Zones (PFZ), fishing spots.\n"
+            "- marine_conditions: Sea/weather conditions, waves, wind, ocean currents, sea temperature (SST), chlorophyll, tides.\n"
+            "- operational_conditions: Whether it is safe to venture out, vessel limit checks, operational suitability.\n"
+            "- source_explanation: Inquiries about data sources, providers (INCOIS, Copernicus), dataset provenance.\n"
+            "- official_alerts: Official cyclone or severe weather warnings.\n"
+            "- habitat_screening: Favorable oceanic habitat screening (SST and chlorophyll).\n"
+            "- lower_risk_route: Safe passage or navigational routing.\n"
+            "- avoidance_zones: Restricted zones, hazard areas.\n"
+            "- unsupported: Greetings, general conversation, marine educational questions, or out-of-scope requests.\n\n"
+            "Classify intent only. Use only canonical required-information identifiers. "
+            "Do not invent coordinates, measurements, alerts, evidence, or capability availability."
         )
         context = (
             f"location_supplied={request.latitude is not None}; "
@@ -520,6 +553,321 @@ def _map_gemini_error(exc: BaseException) -> GeminiRouterError:
     return GeminiRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
 
 
+def _map_openrouter_error(exc: BaseException) -> OpenRouterError:
+    current: BaseException | None = exc
+    status_code: int | None = None
+    for _ in range(8):
+        if current is None:
+            break
+        candidate = getattr(current, "status_code", None) or getattr(
+            current, "code", None
+        )
+        if isinstance(candidate, int):
+            status_code = candidate
+            break
+        current = current.__cause__ or current.__context__
+
+    exc_str = str(exc).upper()
+    if (
+        status_code == 429
+        or "429" in exc_str
+        or "RATE_LIMIT" in exc_str
+        or "QUOTA" in exc_str
+    ):
+        return OpenRouterError(
+            "ASSISTANT_ROUTER_RATE_LIMITED",
+            retryable=True,
+            retry_after_seconds=30,
+        )
+    if status_code in {401, 403} or "API_KEY" in exc_str or "UNAUTHORIZED" in exc_str:
+        return OpenRouterError(
+            "ASSISTANT_ROUTER_AUTHENTICATION_FAILED", retryable=False
+        )
+    if status_code == 503 or (status_code is not None and status_code >= 500):
+        return OpenRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
+    if status_code is not None and 400 <= status_code < 500:
+        return OpenRouterError("ASSISTANT_ROUTER_INVALID_REQUEST", retryable=False)
+    return OpenRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
+
+
+class OpenRouterFunctionIntentRouter:
+    """OpenRouter API router constrained to one forced function call with retry and fallback."""
+
+    def __init__(
+        self,
+        *,
+        api_key: SecretStr,
+        model: str = "nex-agi/nex-n2.5-mini:free",
+        base_url: str = "https://openrouter.ai/api/v1",
+        timeout_seconds: float = 10.0,
+        max_retries: int = 1,
+        temperature: float = 0.0,
+        max_tokens: int = 250,
+        enable_cache: bool = True,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.enable_cache = enable_cache
+        self._http_client = http_client
+        self._cache: dict[str, RouterOutcome] = {}
+        self._tool_spec = {
+            "type": "function",
+            "function": {
+                "name": "route_request",
+                "description": (
+                    "Classify an ORCA request; never provide evidence or availability."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "intent": {
+                            "type": "string",
+                            "enum": [intent.value for intent in AssistantIntent],
+                        },
+                        "confidence": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1,
+                        },
+                        "required_information": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [item.value for item in RequiredInformation],
+                            },
+                            "maxItems": 3,
+                        },
+                    },
+                    "required": [
+                        "intent",
+                        "confidence",
+                        "required_information",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+        }
+
+    async def route(self, request: AssistantRequest) -> RouterOutcome:
+        cache_key = (
+            f"{request.message.strip().lower()}|"
+            f"loc={request.latitude is not None}|"
+            f"time={request.requested_time is not None}|"
+            f"limits={request.operational_limits.supplied_count() > 0}"
+        )
+        if self.enable_cache and cache_key in self._cache:
+            cached = self._cache[cache_key]
+            return RouterOutcome(
+                routing=cached.routing,
+                mode=cached.mode,
+                model=cached.model,
+                input_tokens=0,
+                output_tokens=0,
+            )
+
+        policy = (
+            "You are the intent classifier for ORCA, a marine decision-support assistant. "
+            "Understand the user request in natural language (in English, Hindi, Gujarati, Marathi, Tamil, Telugu, Malayalam, Bengali, etc.) "
+            "and invoke route_request exactly once.\n\n"
+            "Intent guide:\n"
+            "- nearest_pfz: Where to fish, finding fish, Potential Fishing Zones (PFZ), fishing spots.\n"
+            "- marine_conditions: Sea/weather conditions, waves, wind, ocean currents, sea temperature (SST), chlorophyll, tides.\n"
+            "- operational_conditions: Whether it is safe to venture out, vessel limit checks, operational suitability.\n"
+            "- source_explanation: Inquiries about data sources, providers (INCOIS, Copernicus), dataset provenance.\n"
+            "- official_alerts: Official cyclone or severe weather warnings.\n"
+            "- habitat_screening: Favorable oceanic habitat screening (SST and chlorophyll).\n"
+            "- lower_risk_route: Safe passage or navigational routing.\n"
+            "- avoidance_zones: Restricted zones, hazard areas.\n"
+            "- unsupported: Greetings, general conversation, marine educational questions, or out-of-scope requests.\n\n"
+            "Classify intent only. Use only canonical required-information identifiers. "
+            "Do not invent coordinates, measurements, alerts, evidence, or capability availability."
+        )
+        context = (
+            f"location_supplied={request.latitude is not None}; "
+            f"requested_time_supplied={request.requested_time is not None}; "
+            f"operational_limits_supplied={request.operational_limits.supplied_count() > 0}.\n"
+            f"User request: {request.message}"
+        )
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": policy},
+                {"role": "user", "content": context},
+            ],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "tools": [self._tool_spec],
+            "tool_choice": {"type": "function", "function": {"name": "route_request"}},
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key.get_secret_value()}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://orca-marine.org",
+            "X-Title": "ORCA Marine Decision Support",
+        }
+
+        if self._http_client is not None:
+            raw_response = await self._send_request(self._http_client, payload, headers)
+        else:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                raw_response = await self._send_request(client, payload, headers)
+
+        outcome = self._parse_response(raw_response)
+        if self.enable_cache:
+            if len(self._cache) >= 256:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[cache_key] = outcome
+        return outcome
+
+    async def _send_request(
+        self,
+        client: httpx.AsyncClient,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+    ) -> httpx.Response:
+        total_attempts = 1 + max(0, self.max_retries)
+        last_exc: BaseException | None = None
+        for attempt in range(total_attempts):
+            try:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=self.timeout_seconds,
+                )
+                if response.status_code == 429:
+                    raise OpenRouterError(
+                        "ASSISTANT_ROUTER_RATE_LIMITED",
+                        retryable=True,
+                        retry_after_seconds=30,
+                    )
+                if response.status_code in {401, 403}:
+                    raise OpenRouterError(
+                        "ASSISTANT_ROUTER_AUTHENTICATION_FAILED", retryable=False
+                    )
+                if 400 <= response.status_code < 500:
+                    raise OpenRouterError(
+                        "ASSISTANT_ROUTER_INVALID_REQUEST", retryable=False
+                    )
+                if response.status_code >= 500:
+                    if attempt < total_attempts - 1:
+                        await asyncio.sleep(0.5)
+                        continue
+                    raise OpenRouterError(
+                        "ASSISTANT_ROUTER_UNAVAILABLE", retryable=True
+                    )
+                response.raise_for_status()
+                return response
+            except (OpenRouterError, asyncio.CancelledError):
+                raise
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                if attempt < total_attempts - 1:
+                    await asyncio.sleep(0.5)
+                    continue
+                raise OpenRouterError("ASSISTANT_ROUTER_TIMEOUT", retryable=True) from exc
+            except httpx.NetworkError as exc:
+                last_exc = exc
+                if attempt < total_attempts - 1:
+                    await asyncio.sleep(0.5)
+                    continue
+                raise OpenRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True) from exc
+            except Exception as exc:  # noqa: BLE001
+                raise _map_openrouter_error(exc) from None
+        if last_exc is not None:
+            raise _map_openrouter_error(last_exc) from None
+        raise OpenRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
+
+    def _parse_response(self, response: httpx.Response) -> RouterOutcome:
+        try:
+            data = response.json()
+        except Exception:
+            raise OpenRouterOutputError() from None
+
+        choices = data.get("choices") or []
+        if not choices:
+            raise OpenRouterOutputError()
+
+        message_data = choices[0].get("message") or {}
+        tool_calls = message_data.get("tool_calls") or []
+
+        args: dict[str, Any] | None = None
+        # Strategy 1: check tool_calls
+        for call in tool_calls:
+            fn = call.get("function") or {}
+            if fn.get("name") == "route_request":
+                raw_args = fn.get("arguments")
+                if isinstance(raw_args, str):
+                    try:
+                        args = json.loads(raw_args)
+                    except Exception:
+                        pass
+                elif isinstance(raw_args, dict):
+                    args = raw_args
+                if args is not None:
+                    break
+
+        # Strategy 2: fallback to content parsing for mini models
+        if args is None:
+            content = (message_data.get("content") or "").strip()
+            if content:
+                if "```" in content:
+                    lines = content.splitlines()
+                    code_lines: list[str] = []
+                    in_code = False
+                    for line in lines:
+                        if line.strip().startswith("```"):
+                            in_code = not in_code
+                            continue
+                        if in_code:
+                            code_lines.append(line)
+                    candidate = "\n".join(code_lines).strip() if code_lines else content
+                else:
+                    candidate = content
+
+                try:
+                    parsed = json.loads(candidate)
+                    if isinstance(parsed, dict):
+                        if "arguments" in parsed and isinstance(parsed["arguments"], (dict, str)):
+                            inner = parsed["arguments"]
+                            args = json.loads(inner) if isinstance(inner, str) else inner
+                        elif "intent" in parsed:
+                            args = parsed
+                except Exception:
+                    start = candidate.find("{")
+                    end = candidate.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        try:
+                            parsed = json.loads(candidate[start : end + 1])
+                            if isinstance(parsed, dict) and "intent" in parsed:
+                                args = parsed
+                        except Exception:
+                            pass
+
+        if args is None:
+            raise OpenRouterOutputError()
+
+        try:
+            routed = IntentRoutingResult.model_validate(args)
+        except ValidationError:
+            raise OpenRouterOutputError() from None
+
+        usage = data.get("usage") or {}
+        return RouterOutcome(
+            routing=routed,
+            mode=RoutingMode.OPENROUTER,
+            model=self.model,
+            input_tokens=_safe_token(usage.get("prompt_tokens")),
+            output_tokens=_safe_token(usage.get("completion_tokens")),
+        )
+
+
 class FallbackIntentRouter:
     def __init__(self, primary: IntentRouter, fallback: IntentRouter) -> None:
         self.primary = primary
@@ -530,18 +878,19 @@ class FallbackIntentRouter:
             return await self.primary.route(request)
         except asyncio.CancelledError:
             raise
-        except (GeminiRouterError, IntentRouterNotConfigured) as exc:
+        except (GeminiRouterError, OpenRouterError, IntentRouterNotConfigured) as exc:
             outcome = await self.fallback.route(request)
             code = getattr(exc, "code", "ASSISTANT_ROUTER_NOT_CONFIGURED")
             retryable = bool(getattr(exc, "retryable", False))
             retry_after = getattr(exc, "retry_after_seconds", None)
+            provider_label = "OpenRouter" if isinstance(exc, OpenRouterError) else "Gemini"
             return RouterOutcome(
                 routing=outcome.routing,
                 mode=outcome.mode,
                 warning=AssistantWarning(
                     code=code,
                     message=(
-                        "Gemini intent routing was unavailable; a limited deterministic "
+                        f"{provider_label} intent routing was unavailable; a limited deterministic "
                         "router was used."
                     ),
                     retryable=retryable,
