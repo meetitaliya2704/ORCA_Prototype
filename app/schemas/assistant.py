@@ -100,6 +100,7 @@ class IntentRoutingResult(BaseModel):
 
 
 class RoutingMode(StrEnum):
+    GROQ = "groq_function_call"
     OPENROUTER = "openrouter_function_call"
     GEMINI = "gemini_function_call"
     DETERMINISTIC = "deterministic_fallback"

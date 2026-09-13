@@ -25,18 +25,32 @@ _LANGUAGE_NAMES: dict[str, str] = {
 }
 
 
+def _recover_truncated_text(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return text
+    terminal_chars = {".", "!", "?", "।", "॥", '"', "'", "”", "’", ")", "]", "}"}
+    if text[-1] in terminal_chars:
+        return text
+    for term in [". ", "! ", "? ", "। ", "॥ "]:
+        idx = text.rfind(term)
+        if idx > len(text) // 2:
+            return text[: idx + 1].strip()
+    return text + "."
+
+
 class LLMResponseExplainer:
     """Conversational natural-language explainer for ORCA marine decisions and guidance."""
 
     def __init__(
         self,
         *,
-        provider: str = "openrouter",
+        provider: str = "groq",
         api_key: SecretStr,
-        model: str = "nex-agi/nex-n2.5-mini:free",
-        base_url: str = "https://openrouter.ai/api/v1",
+        model: str = "qwen/qwen3.8-27b",
+        base_url: str = "https://api.groq.com/openai/v1",
         timeout_seconds: float = 12.0,
-        max_tokens: int = 500,
+        max_tokens: int = 1200,
         temperature: float = 0.3,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -65,6 +79,15 @@ class LLMResponseExplainer:
         deterministic answer.
         """
         try:
+            if self.provider == "groq":
+                return await self._explain_groq(
+                    message=message,
+                    language=language,
+                    intent=intent,
+                    deterministic_answer=deterministic_answer,
+                    status=status,
+                    recent_messages=recent_messages,
+                )
             if self.provider == "openrouter":
                 return await self._explain_openrouter(
                     message=message,
@@ -106,7 +129,8 @@ class LLMResponseExplainer:
             f"in {lang_name}. If verified data was computed, explain the outcome conversationally first, "
             "then summarize the key readings or bulletin details clearly.\n"
             "4. Never output raw JSON or code blocks. Present your advice cleanly and practically "
-            "for someone planning to go to sea."
+            "for someone planning to go to sea.\n"
+            "5. Always finish your thoughts and complete all sentences. Never cut off mid-sentence."
         )
 
     def _build_user_prompt(
@@ -114,16 +138,18 @@ class LLMResponseExplainer:
         *,
         message: str,
         language: str,
-        intent: AssistantIntent,
+        intent: AssistantIntent | str,
         deterministic_answer: str,
-        status: AssistantResponseStatus,
+        status: AssistantResponseStatus | str,
     ) -> str:
         lang_name = _LANGUAGE_NAMES.get(language, "English")
+        intent_str = getattr(intent, "value", str(intent))
+        status_str = getattr(status, "value", str(status))
         return (
             f"User's Question: {message}\n"
             f"Target Language: {lang_name}\n"
-            f"Intent: {intent.value}\n"
-            f"Outcome Status: {status.value}\n\n"
+            f"Intent: {intent_str}\n"
+            f"Outcome Status: {status_str}\n\n"
             "Verified Facts from Official Calculations:\n"
             f"{deterministic_answer}\n\n"
             f"Please give a natural, helpful response to the user in {lang_name} addressing "
@@ -197,7 +223,86 @@ class LLMResponseExplainer:
         if not choices:
             return None
         content = choices[0].get("message", {}).get("content", "")
-        return content.strip() if content and content.strip() else None
+        if not content or not content.strip():
+            return None
+        return _recover_truncated_text(content)
+
+    async def _explain_groq(
+        self,
+        *,
+        message: str,
+        language: str,
+        intent: AssistantIntent,
+        deterministic_answer: str,
+        status: AssistantResponseStatus,
+        recent_messages: tuple[AssistantConversationMessage, ...],
+    ) -> str | None:
+        system_prompt = self._build_system_prompt(language)
+        user_prompt = self._build_user_prompt(
+            message=message,
+            language=language,
+            intent=intent,
+            deterministic_answer=deterministic_answer,
+            status=status,
+        )
+
+        messages_payload: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt}
+        ]
+
+        for prev in recent_messages[-4:]:
+            role = "assistant" if prev.role == "assistant" else "user"
+            messages_payload.append({"role": role, "content": prev.content})
+
+        messages_payload.append({"role": "user", "content": user_prompt})
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages_payload,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "reasoning_effort": "none",
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key.get_secret_value()}",
+            "Content-Type": "application/json",
+        }
+
+        async def _do_post(client: httpx.AsyncClient) -> httpx.Response:
+            resp = await client.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=self.timeout_seconds,
+            )
+            if resp.status_code == 400 and "reasoning_effort" in payload:
+                fallback_payload = dict(payload)
+                fallback_payload.pop("reasoning_effort", None)
+                resp = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    json=fallback_payload,
+                    headers=headers,
+                    timeout=self.timeout_seconds,
+                )
+            return resp
+
+        if self._http_client is not None:
+            response = await _do_post(self._http_client)
+        else:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await _do_post(client)
+
+        if response.status_code != 200:
+            return None
+
+        data = response.json()
+        choices = data.get("choices") or []
+        if not choices:
+            return None
+        content = choices[0].get("message", {}).get("content", "")
+        if not content or not content.strip():
+            return None
+        return _recover_truncated_text(content)
 
     async def _explain_gemini(
         self,

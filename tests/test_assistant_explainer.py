@@ -18,7 +18,7 @@ async def test_explainer_openrouter_success():
     def handler(request: httpx.Request) -> httpx.Response:
         captured_requests.append(request)
         data = json.loads(request.content.decode())
-        assert data["model"] == "nex-agi/nex-n2.5-mini:free"
+        assert data["model"] in {"nex-agi/nex-n2.5-mini:free", "qwen/qwen3.8-27b"}
         assert len(data["messages"]) >= 2
         # Check that system prompt contains language instruction
         assert "English" in data["messages"][0]["content"]
@@ -263,4 +263,58 @@ async def test_graph_with_explainer_produces_natural_response():
         )
 
     assert "I am ORCA, your dedicated marine intelligence assistant" in response.answer
+
+
+@pytest.mark.asyncio
+async def test_explainer_groq_handles_reasoning_effort_retry():
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        data = json.loads(request.content.decode())
+        if "reasoning_effort" in data:
+            return httpx.Response(400, json={"error": {"message": "reasoning_effort not supported"}})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "Marine conditions are clear."}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        explainer = LLMResponseExplainer(
+            provider="groq",
+            api_key=SecretStr("test-key"),
+            http_client=client,
+        )
+        ans = await explainer.explain(
+            message="Check conditions",
+            language="en",
+            intent=AssistantIntent.MARINE_CONDITIONS,
+            deterministic_answer="Conditions clear.",
+            status=AssistantResponseStatus.COMPLETED,
+        )
+
+    assert call_count == 2
+    assert ans == "Marine conditions are clear."
+
+
+@pytest.mark.asyncio
+async def test_explainer_recovers_truncated_text():
+    from app.agents.explainer import _recover_truncated_text
+
+    # Incomplete sentence with a previous terminal boundary
+    text1 = "SST is 29.9°C. Waves are 1.2 meters high. Chlorophyll-a measures"
+    recovered1 = _recover_truncated_text(text1)
+    assert recovered1 == "SST is 29.9°C. Waves are 1.2 meters high."
+
+    # Already terminated text
+    text2 = "All conditions are safe for navigation."
+    recovered2 = _recover_truncated_text(text2)
+    assert recovered2 == text2
+
+    # Truncated without prior punctuation: should append period
+    text3 = "Water conditions are favorable"
+    recovered3 = _recover_truncated_text(text3)
+    assert recovered3 == "Water conditions are favorable."
 

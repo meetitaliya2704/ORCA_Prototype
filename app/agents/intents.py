@@ -75,6 +75,25 @@ class OpenRouterOutputError(OpenRouterError):
         super().__init__("ASSISTANT_ROUTER_INVALID_OUTPUT", retryable=False)
 
 
+class GroqRouterError(RuntimeError):
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        super().__init__("The Groq intent router is unavailable")
+        self.code = code
+        self.retryable = retryable
+        self.retry_after_seconds = retry_after_seconds
+
+
+class GroqRouterOutputError(GroqRouterError):
+    def __init__(self) -> None:
+        super().__init__("ASSISTANT_ROUTER_INVALID_OUTPUT", retryable=False)
+
+
 def required_information_for(
     request: AssistantRequest, intent: AssistantIntent
 ) -> tuple[RequiredInformation, ...]:
@@ -590,19 +609,86 @@ def _map_openrouter_error(exc: BaseException) -> OpenRouterError:
     return OpenRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
 
 
-class OpenRouterFunctionIntentRouter:
-    """OpenRouter API router constrained to one forced function call with retry and fallback."""
+def _map_groq_error(exc: BaseException) -> GroqRouterError:
+    current: BaseException | None = exc
+    status_code: int | None = None
+    for _ in range(8):
+        if current is None:
+            break
+        candidate = getattr(current, "status_code", None) or getattr(
+            current, "code", None
+        )
+        if isinstance(candidate, int):
+            status_code = candidate
+            break
+        current = current.__cause__ or current.__context__
+
+    exc_str = str(exc).upper()
+    if (
+        status_code == 429
+        or "429" in exc_str
+        or "RATE_LIMIT" in exc_str
+        or "QUOTA" in exc_str
+    ):
+        return GroqRouterError(
+            "ASSISTANT_ROUTER_RATE_LIMITED",
+            retryable=True,
+            retry_after_seconds=30,
+        )
+    if status_code in {401, 403} or "API_KEY" in exc_str or "UNAUTHORIZED" in exc_str:
+        return GroqRouterError(
+            "ASSISTANT_ROUTER_AUTHENTICATION_FAILED", retryable=False
+        )
+    if status_code == 503 or (status_code is not None and status_code >= 500):
+        return GroqRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
+    if status_code is not None and 400 <= status_code < 500:
+        return GroqRouterError("ASSISTANT_ROUTER_INVALID_REQUEST", retryable=False)
+    return GroqRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
+
+
+_ROUTER_POLICY = (
+    "You are the intent classifier for ORCA, a marine decision-support assistant. "
+    "Understand the user request in natural language (in English, Hindi, Gujarati, Marathi, Tamil, Telugu, Malayalam, Bengali, etc.) "
+    "and invoke route_request exactly once.\n\n"
+    "Intent guide:\n"
+    "- nearest_pfz: Where to fish, finding fish, Potential Fishing Zones (PFZ), fishing spots.\n"
+    "- marine_conditions: Sea/weather conditions, waves, wind, ocean currents, sea temperature (SST), chlorophyll, tides.\n"
+    "- operational_conditions: Whether it is safe to venture out, vessel limit checks, operational suitability.\n"
+    "- source_explanation: Inquiries about data sources, providers (INCOIS, Copernicus), dataset provenance.\n"
+    "- official_alerts: Official cyclone or severe weather warnings.\n"
+    "- habitat_screening: Favorable oceanic habitat screening (SST and chlorophyll).\n"
+    "- lower_risk_route: Safe passage or navigational routing.\n"
+    "- avoidance_zones: Restricted zones, hazard areas.\n"
+    "- unsupported: Greetings, general conversation, marine educational questions, or out-of-scope requests.\n\n"
+    "Classify intent only. Use only canonical required-information identifiers. "
+    "Do not invent coordinates, measurements, alerts, evidence, or capability availability."
+)
+
+
+def _format_request_context(request: AssistantRequest) -> str:
+    return (
+        f"location_supplied={request.latitude is not None}; "
+        f"requested_time_supplied={request.requested_time is not None}; "
+        f"operational_limits_supplied={request.operational_limits.supplied_count() > 0}.\n"
+        f"User request: {request.message}"
+    )
+
+
+class GroqFunctionIntentRouter:
+    """Groq API router constrained to one forced function call with retry and fallback."""
 
     def __init__(
         self,
         *,
         api_key: SecretStr,
-        model: str = "nex-agi/nex-n2.5-mini:free",
-        base_url: str = "https://openrouter.ai/api/v1",
+        model: str = "qwen/qwen3.8-27b",
+        base_url: str = "https://api.groq.com/openai/v1",
         timeout_seconds: float = 10.0,
         max_retries: int = 1,
         temperature: float = 0.0,
         max_tokens: int = 250,
+        reasoning_effort: str = "none",
+        mode: RoutingMode = RoutingMode.GROQ,
         enable_cache: bool = True,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -613,6 +699,8 @@ class OpenRouterFunctionIntentRouter:
         self.max_retries = max_retries
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
+        self.mode = mode
         self.enable_cache = enable_cache
         self._http_client = http_client
         self._cache: dict[str, RouterOutcome] = {}
@@ -621,7 +709,8 @@ class OpenRouterFunctionIntentRouter:
             "function": {
                 "name": "route_request",
                 "description": (
-                    "Classify an ORCA request; never provide evidence or availability."
+                    "Select the single most relevant ORCA maritime intent and specify whether any "
+                    "additional required information is strictly necessary."
                 ),
                 "parameters": {
                     "type": "object",
@@ -629,38 +718,32 @@ class OpenRouterFunctionIntentRouter:
                         "intent": {
                             "type": "string",
                             "enum": [intent.value for intent in AssistantIntent],
+                            "description": "The classified user intent.",
                         },
                         "confidence": {
                             "type": "number",
-                            "minimum": 0,
-                            "maximum": 1,
+                            "minimum": 0.0,
+                            "maximum": 1.0,
+                            "description": "Confidence score between 0.0 and 1.0.",
                         },
                         "required_information": {
                             "type": "array",
                             "items": {
                                 "type": "string",
-                                "enum": [item.value for item in RequiredInformation],
+                                "enum": [req.value for req in RequiredInformation],
                             },
                             "maxItems": 3,
+                            "description": "Canonical fields missing from the user request.",
                         },
                     },
-                    "required": [
-                        "intent",
-                        "confidence",
-                        "required_information",
-                    ],
+                    "required": ["intent", "confidence"],
                     "additionalProperties": False,
                 },
             },
         }
 
     async def route(self, request: AssistantRequest) -> RouterOutcome:
-        cache_key = (
-            f"{request.message.strip().lower()}|"
-            f"loc={request.latitude is not None}|"
-            f"time={request.requested_time is not None}|"
-            f"limits={request.operational_limits.supplied_count() > 0}"
-        )
+        cache_key = f"{request.message.strip().lower()}|{request.latitude}|{request.longitude}|{request.preferred_language.value}"
         if self.enable_cache and cache_key in self._cache:
             cached = self._cache[cache_key]
             return RouterOutcome(
@@ -671,30 +754,9 @@ class OpenRouterFunctionIntentRouter:
                 output_tokens=0,
             )
 
-        policy = (
-            "You are the intent classifier for ORCA, a marine decision-support assistant. "
-            "Understand the user request in natural language (in English, Hindi, Gujarati, Marathi, Tamil, Telugu, Malayalam, Bengali, etc.) "
-            "and invoke route_request exactly once.\n\n"
-            "Intent guide:\n"
-            "- nearest_pfz: Where to fish, finding fish, Potential Fishing Zones (PFZ), fishing spots.\n"
-            "- marine_conditions: Sea/weather conditions, waves, wind, ocean currents, sea temperature (SST), chlorophyll, tides.\n"
-            "- operational_conditions: Whether it is safe to venture out, vessel limit checks, operational suitability.\n"
-            "- source_explanation: Inquiries about data sources, providers (INCOIS, Copernicus), dataset provenance.\n"
-            "- official_alerts: Official cyclone or severe weather warnings.\n"
-            "- habitat_screening: Favorable oceanic habitat screening (SST and chlorophyll).\n"
-            "- lower_risk_route: Safe passage or navigational routing.\n"
-            "- avoidance_zones: Restricted zones, hazard areas.\n"
-            "- unsupported: Greetings, general conversation, marine educational questions, or out-of-scope requests.\n\n"
-            "Classify intent only. Use only canonical required-information identifiers. "
-            "Do not invent coordinates, measurements, alerts, evidence, or capability availability."
-        )
-        context = (
-            f"location_supplied={request.latitude is not None}; "
-            f"requested_time_supplied={request.requested_time is not None}; "
-            f"operational_limits_supplied={request.operational_limits.supplied_count() > 0}.\n"
-            f"User request: {request.message}"
-        )
-        payload = {
+        policy = _ROUTER_POLICY
+        context = _format_request_context(request)
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": policy},
@@ -704,6 +766,7 @@ class OpenRouterFunctionIntentRouter:
             "max_tokens": self.max_tokens,
             "tools": [self._tool_spec],
             "tool_choice": {"type": "function", "function": {"name": "route_request"}},
+            "reasoning_effort": self.reasoning_effort,
         }
         headers = {
             "Authorization": f"Bearer {self.api_key.get_secret_value()}",
@@ -725,6 +788,21 @@ class OpenRouterFunctionIntentRouter:
             self._cache[cache_key] = outcome
         return outcome
 
+    def _make_error(self, code: str, *, retryable: bool, retry_after_seconds: int | None = None) -> Exception:
+        if self.mode == RoutingMode.OPENROUTER:
+            return OpenRouterError(code, retryable=retryable, retry_after_seconds=retry_after_seconds)
+        return GroqRouterError(code, retryable=retryable, retry_after_seconds=retry_after_seconds)
+
+    def _map_error(self, exc: BaseException) -> Exception:
+        if self.mode == RoutingMode.OPENROUTER:
+            return _map_openrouter_error(exc)
+        return _map_groq_error(exc)
+
+    def _make_output_error(self) -> Exception:
+        if self.mode == RoutingMode.OPENROUTER:
+            return OpenRouterOutputError()
+        return GroqRouterOutputError()
+
     async def _send_request(
         self,
         client: httpx.AsyncClient,
@@ -742,63 +820,73 @@ class OpenRouterFunctionIntentRouter:
                     timeout=self.timeout_seconds,
                 )
                 if response.status_code == 429:
-                    raise OpenRouterError(
+                    raise self._make_error(
                         "ASSISTANT_ROUTER_RATE_LIMITED",
                         retryable=True,
                         retry_after_seconds=30,
                     )
                 if response.status_code in {401, 403}:
-                    raise OpenRouterError(
+                    raise self._make_error(
                         "ASSISTANT_ROUTER_AUTHENTICATION_FAILED", retryable=False
                     )
                 if 400 <= response.status_code < 500:
-                    raise OpenRouterError(
+                    if "reasoning_effort" in payload:
+                        payload_no_reasoning = dict(payload)
+                        payload_no_reasoning.pop("reasoning_effort", None)
+                        fallback_resp = await client.post(
+                            f"{self.base_url}/chat/completions",
+                            json=payload_no_reasoning,
+                            headers=headers,
+                            timeout=self.timeout_seconds,
+                        )
+                        if fallback_resp.status_code == 200:
+                            return fallback_resp
+                    raise self._make_error(
                         "ASSISTANT_ROUTER_INVALID_REQUEST", retryable=False
                     )
                 if response.status_code >= 500:
                     if attempt < total_attempts - 1:
                         await asyncio.sleep(0.5)
                         continue
-                    raise OpenRouterError(
+                    raise self._make_error(
                         "ASSISTANT_ROUTER_UNAVAILABLE", retryable=True
                     )
                 response.raise_for_status()
                 return response
-            except (OpenRouterError, asyncio.CancelledError):
+            except (GroqRouterError, OpenRouterError, asyncio.CancelledError):
                 raise
             except httpx.TimeoutException as exc:
                 last_exc = exc
                 if attempt < total_attempts - 1:
                     await asyncio.sleep(0.5)
                     continue
-                raise OpenRouterError("ASSISTANT_ROUTER_TIMEOUT", retryable=True) from exc
+                raise self._make_error("ASSISTANT_ROUTER_TIMEOUT", retryable=True) from exc
             except httpx.NetworkError as exc:
                 last_exc = exc
                 if attempt < total_attempts - 1:
                     await asyncio.sleep(0.5)
                     continue
-                raise OpenRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True) from exc
+                raise self._make_error("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True) from exc
             except Exception as exc:  # noqa: BLE001
-                raise _map_openrouter_error(exc) from None
+                raise self._map_error(exc) from None
         if last_exc is not None:
-            raise _map_openrouter_error(last_exc) from None
-        raise OpenRouterError("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
+            raise self._map_error(last_exc) from None
+        raise self._make_error("ASSISTANT_ROUTER_UNAVAILABLE", retryable=True)
 
     def _parse_response(self, response: httpx.Response) -> RouterOutcome:
         try:
             data = response.json()
         except Exception:
-            raise OpenRouterOutputError() from None
+            raise self._make_output_error() from None
 
         choices = data.get("choices") or []
         if not choices:
-            raise OpenRouterOutputError()
+            raise self._make_output_error()
 
         message_data = choices[0].get("message") or {}
         tool_calls = message_data.get("tool_calls") or []
 
         args: dict[str, Any] | None = None
-        # Strategy 1: check tool_calls
         for call in tool_calls:
             fn = call.get("function") or {}
             if fn.get("name") == "route_request":
@@ -813,7 +901,6 @@ class OpenRouterFunctionIntentRouter:
                 if args is not None:
                     break
 
-        # Strategy 2: fallback to content parsing for mini models
         if args is None:
             content = (message_data.get("content") or "").strip()
             if content:
@@ -851,20 +938,51 @@ class OpenRouterFunctionIntentRouter:
                             pass
 
         if args is None:
-            raise OpenRouterOutputError()
+            raise self._make_output_error()
 
         try:
             routed = IntentRoutingResult.model_validate(args)
         except ValidationError:
-            raise OpenRouterOutputError() from None
+            raise self._make_output_error() from None
 
         usage = data.get("usage") or {}
         return RouterOutcome(
             routing=routed,
-            mode=RoutingMode.OPENROUTER,
+            mode=self.mode,
             model=self.model,
             input_tokens=_safe_token(usage.get("prompt_tokens")),
             output_tokens=_safe_token(usage.get("completion_tokens")),
+        )
+
+
+class OpenRouterFunctionIntentRouter(GroqFunctionIntentRouter):
+    def __init__(
+        self,
+        *,
+        api_key: SecretStr,
+        model: str = "nex-agi/nex-n2.5-mini:free",
+        base_url: str = "https://openrouter.ai/api/v1",
+        timeout_seconds: float = 10.0,
+        max_retries: int = 1,
+        temperature: float = 0.0,
+        max_tokens: int = 250,
+        reasoning_effort: str = "none",
+        mode: RoutingMode = RoutingMode.OPENROUTER,
+        enable_cache: bool = True,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        super().__init__(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            mode=mode,
+            enable_cache=enable_cache,
+            http_client=http_client,
         )
 
 
@@ -878,12 +996,17 @@ class FallbackIntentRouter:
             return await self.primary.route(request)
         except asyncio.CancelledError:
             raise
-        except (GeminiRouterError, OpenRouterError, IntentRouterNotConfigured) as exc:
+        except (GeminiRouterError, GroqRouterError, OpenRouterError, IntentRouterNotConfigured) as exc:
             outcome = await self.fallback.route(request)
             code = getattr(exc, "code", "ASSISTANT_ROUTER_NOT_CONFIGURED")
             retryable = bool(getattr(exc, "retryable", False))
             retry_after = getattr(exc, "retry_after_seconds", None)
-            provider_label = "OpenRouter" if isinstance(exc, OpenRouterError) else "Gemini"
+            if isinstance(self.primary, OpenRouterFunctionIntentRouter) or isinstance(exc, OpenRouterError):
+                provider_label = "OpenRouter"
+            elif isinstance(self.primary, GroqFunctionIntentRouter) or isinstance(exc, GroqRouterError):
+                provider_label = "Groq"
+            else:
+                provider_label = "Gemini"
             return RouterOutcome(
                 routing=outcome.routing,
                 mode=outcome.mode,

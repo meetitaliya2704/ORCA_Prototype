@@ -550,6 +550,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 DeterministicIntentRouter,
                 FallbackIntentRouter,
                 GeminiFunctionIntentRouter,
+                GroqFunctionIntentRouter,
                 OpenRouterFunctionIntentRouter,
             )
             from app.services.assistant_store import (
@@ -562,6 +563,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             explainer: LLMResponseExplainer | None = None
 
             if (
+                provider == "groq"
+                and settings.groq_api_key is not None
+                and settings.groq_api_key.get_secret_value().strip()
+            ):
+                router = FallbackIntentRouter(
+                    GroqFunctionIntentRouter(
+                        api_key=settings.groq_api_key,
+                        model=settings.orca_assistant_model,
+                        base_url=settings.groq_base_url,
+                        timeout_seconds=min(
+                            settings.assistant_model_timeout_seconds, 10.0
+                        ),
+                    ),
+                    fallback_router,
+                )
+                configured_model = settings.orca_assistant_model
+                explainer = LLMResponseExplainer(
+                    provider="groq",
+                    api_key=settings.groq_api_key,
+                    model=settings.orca_assistant_model,
+                    base_url=settings.groq_base_url,
+                    timeout_seconds=min(
+                        settings.assistant_model_timeout_seconds, 12.0
+                    ),
+                )
+            elif (
                 provider == "openrouter"
                 and settings.openrouter_api_key is not None
                 and settings.openrouter_api_key.get_secret_value().strip()

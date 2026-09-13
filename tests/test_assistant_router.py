@@ -12,6 +12,9 @@ from app.agents.intents import (
     GeminiFunctionIntentRouter,
     GeminiRouterError,
     GeminiRouterOutputError,
+    GroqFunctionIntentRouter,
+    GroqRouterError,
+    GroqRouterOutputError,
     OpenRouterError,
     OpenRouterFunctionIntentRouter,
     OpenRouterOutputError,
@@ -549,5 +552,73 @@ async def test_openrouter_router_caches_identical_queries():
         assert res2.input_tokens == 0
         assert res2.output_tokens == 0
         assert res2.routing.intent == "marine_conditions"
+
+
+async def test_groq_router_success():
+    def handler(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content.decode())
+        assert data["model"] == "qwen/qwen3.8-27b"
+        assert data["tool_choice"] == {"type": "function", "function": {"name": "route_request"}}
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "route_request",
+                                        "arguments": json.dumps(
+                                            {"intent": "nearest_pfz", "confidence": 0.98, "required_information": []}
+                                        ),
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 150, "completion_tokens": 20},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        router = GroqFunctionIntentRouter(
+            api_key=SecretStr("groq-test-key"),
+            http_client=client,
+        )
+        outcome = await router.route(AssistantRequest(message="Nearest PFZ", latitude=19.0, longitude=72.8))
+
+    assert outcome.mode == RoutingMode.GROQ
+    assert outcome.routing.intent == "nearest_pfz"
+    assert outcome.input_tokens == 150
+    assert outcome.output_tokens == 20
+
+
+async def test_groq_fallback_order_to_deterministic_router():
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(429, text="Rate limit reached")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        primary = GroqFunctionIntentRouter(
+            api_key=SecretStr("groq-test-key"),
+            http_client=client,
+        )
+        fallback = DeterministicIntentRouter()
+        chained_router = FallbackIntentRouter(primary=primary, fallback=fallback)
+
+        outcome = await chained_router.route(
+            AssistantRequest(message="where is the nearest pfz", latitude=20.0, longitude=72.0)
+        )
+
+    assert outcome.mode == RoutingMode.DETERMINISTIC
+    assert outcome.routing.intent == "nearest_pfz"
+    assert outcome.warning is not None
+    assert outcome.warning.code == "ASSISTANT_ROUTER_RATE_LIMITED"
+    assert "Groq" in outcome.warning.message
+
 
 

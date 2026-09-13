@@ -122,7 +122,7 @@ export const assistantApiResponseSchema = z.object({
   sources: z.array(assistantSourceSchema).default([]),
   warnings: z.array(assistantWarningSchema).default([]),
   geojson: assistantGeoJsonSchema.nullable().optional(),
-  routing_mode: z.enum(["openrouter_function_call", "gemini_function_call", "deterministic_fallback", "demonstration_fixture"]),
+  routing_mode: z.enum(["groq_function_call", "openrouter_function_call", "gemini_function_call", "deterministic_fallback", "demonstration_fixture"]),
   model: z.string().max(100).nullable().optional(),
   demonstration: z.object({
     label: z.literal("Demonstration Snapshot"),

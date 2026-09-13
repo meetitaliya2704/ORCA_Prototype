@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -101,6 +102,38 @@ class LandLocationResult:
     requested_capability: str
 
 
+_COORD_REGEX = re.compile(
+    r"(?:lat(?:itude)?\s*[:=]?\s*)?([+-]?\d{1,2}(?:\.\d+)?)\s*(?:°|\bdeg(?:rees?)?)?\s*([NSns])?\s*[,;/ ]\s*(?:lon(?:gitude)?\s*[:=]?\s*)?([+-]?\d{1,3}(?:\.\d+)?)\s*(?:°|\bdeg(?:rees?)?)?\s*([EWew])?"
+)
+
+
+def _extract_coordinates_from_text(text: str) -> tuple[float, float] | None:
+    match = _COORD_REGEX.search(text)
+    if not match:
+        return None
+    try:
+        lat_val = float(match.group(1))
+        lat_hem = match.group(2)
+        lon_val = float(match.group(3))
+        lon_hem = match.group(4)
+
+        if lat_hem and lat_hem.upper() == "S":
+            lat_val = -abs(lat_val)
+        elif lat_hem and lat_hem.upper() == "N":
+            lat_val = abs(lat_val)
+
+        if lon_hem and lon_hem.upper() == "W":
+            lon_val = -abs(lon_val)
+        elif lon_hem and lon_hem.upper() == "E":
+            lon_val = abs(lon_val)
+
+        if -90.0 <= lat_val <= 90.0 and -180.0 <= lon_val <= 180.0:
+            return round(lat_val, 6), round(lon_val, 6)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
 class ORCAAssistantGraph:
     def __init__(
         self,
@@ -170,6 +203,12 @@ class ORCAAssistantGraph:
         return graph.compile()
 
     async def query(self, request: AssistantRequest) -> AssistantResponse:
+        if request.latitude is None or request.longitude is None:
+            extracted_coords = _extract_coordinates_from_text(request.message)
+            if extracted_coords is not None:
+                request = request.model_copy(
+                    update={"latitude": extracted_coords[0], "longitude": extracted_coords[1]}
+                )
         integration = (
             "demonstration_fixture"
             if request.mode == AssistantMode.DEMONSTRATION
