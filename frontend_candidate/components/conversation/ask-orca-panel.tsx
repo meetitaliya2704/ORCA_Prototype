@@ -1,19 +1,25 @@
 "use client";
 
 import {
+  AlertTriangle,
   Bot,
+  Check,
   ChevronDown,
   Clock,
   FlaskConical,
   History,
   LoaderCircle,
   MessageSquareText,
+  Mic,
+  MicOff,
+  Pencil,
   RotateCcw,
   Send,
   Sparkles,
   Square,
   Trash2,
   Waves,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ActivityTrace } from "./activity-trace";
@@ -22,9 +28,11 @@ import { EvidenceChips } from "./evidence-chips";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import type { ConversationSession } from "@/hooks/use-assistant";
+import { transcribeAudioQuery } from "@/lib/api/speech";
 import type { AssistantMessage, AssistantMode, EvidenceReference } from "@/lib/schemas/assistant";
-import type { AssistantContextValues } from "@/lib/schemas/assistant-api";
+import type { AssistantContextValues, VoiceTranscriptionResponse } from "@/lib/schemas/assistant-api";
 import type { JourneyResponse } from "@/lib/schemas/journey";
 
 const suggestions = [
@@ -95,6 +103,64 @@ export function AskOrcaPanel({
   const [historyOpen, setHistoryOpen] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
+
+  const recorder = useAudioRecorder(30);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState<VoiceTranscriptionResponse | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
+  const handleStartRecording = async () => {
+    setVoiceError(null);
+    setVoiceTranscript(null);
+    const ok = await recorder.startRecording();
+    if (!ok) {
+      composer.current?.focus();
+    }
+  };
+
+  const handleStopRecording = async () => {
+    const audioBlob = await recorder.stopRecording();
+    if (!audioBlob) return;
+    setIsTranscribing(true);
+    setVoiceError(null);
+    try {
+      const resp = await transcribeAudioQuery(audioBlob);
+      setDraft(resp.text);
+      setVoiceTranscript(resp);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Voice transcription failed. Please type your query.";
+      setVoiceError(msg);
+      composer.current?.focus();
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const handleCancelRecording = () => {
+    recorder.cancelRecording();
+    setVoiceTranscript(null);
+    setVoiceError(null);
+  };
+
+  const handleConfirmVoice = () => {
+    setVoiceTranscript(null);
+    if (draft.trim()) {
+      setSuggestionsForCurrentMessages(false);
+      onSend(draft);
+      setDraft("");
+    }
+  };
+
+  const handleEditVoice = () => {
+    setVoiceTranscript(null);
+    composer.current?.focus();
+  };
+
+  const handleDiscardVoice = () => {
+    setVoiceTranscript(null);
+    setDraft("");
+  };
+
   const suggestionsOpen = suggestionsOverride?.messageCount === messages.length
     ? suggestionsOverride.open
     : messages.length === 0;
@@ -347,12 +413,142 @@ export function AskOrcaPanel({
 
     <div className="composer-shell shrink-0 border-t border-[var(--border)] p-3 sm:p-4">
       {canRetry && onRetry && <Button variant="secondary" className="mb-3 w-full" onClick={onRetry}><RotateCcw aria-hidden="true" className="size-4" />Retry assistant request</Button>}
+
+      {(recorder.error || voiceError) && (
+        <div role="alert" className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          <div className="flex items-center gap-2 min-w-0">
+            <MicOff className="size-4 shrink-0 text-red-500" aria-hidden="true" />
+            <span>{recorder.error || voiceError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => { recorder.clearError(); setVoiceError(null); }}
+            className="shrink-0 p-0.5 text-red-500 hover:text-red-700 dark:hover:text-red-300"
+            aria-label="Dismiss error"
+          >
+            <X className="size-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      {recorder.isRecording && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50/80 p-3 dark:border-red-900/60 dark:bg-red-950/30">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="relative flex size-3 shrink-0">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex size-3 rounded-full bg-red-500" />
+              </span>
+              <span className="text-xs font-semibold text-red-700 dark:text-red-300">
+                Recording voice query... ({recorder.recordingSeconds}s / {recorder.maxSeconds}s)
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button type="button" size="sm" variant="secondary" onClick={handleCancelRecording} className="h-7 text-xs">
+                Cancel
+              </Button>
+              <Button type="button" size="sm" variant="danger" onClick={handleStopRecording} className="h-7 gap-1.5 text-xs font-semibold">
+                <Square className="size-3 fill-current" />
+                Stop & Transcribe
+              </Button>
+            </div>
+          </div>
+          <div className="mt-2.5 h-1 w-full overflow-hidden rounded-full bg-red-200/60 dark:bg-red-900/40">
+            <div
+              className="h-full bg-red-500 transition-all duration-300 ease-linear"
+              style={{ width: `${Math.min(100, (recorder.recordingSeconds / recorder.maxSeconds) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {isTranscribing && (
+        <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted-foreground)]">
+          <LoaderCircle className="size-4 animate-spin text-[var(--primary)]" aria-hidden="true" />
+          <span>Processing audio...</span>
+        </div>
+      )}
+
+      {voiceTranscript && (
+        <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50/90 p-3.5 text-sm shadow-sm dark:border-sky-900/60 dark:bg-sky-950/40">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white">
+              <Mic className="size-3.5" aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-sky-700 dark:text-sky-300">
+                Voice Input Confirmation
+              </p>
+              <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">
+                {voiceTranscript.confirmation_prompt || `We understood: "${voiceTranscript.text}". Continue?`}
+              </p>
+              {voiceTranscript.safety_warning && (
+                <div className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-100/90 p-2 text-xs text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                  <AlertTriangle className="size-3.5 shrink-0 text-amber-600 mt-0.5" aria-hidden="true" />
+                  <span>{voiceTranscript.safety_warning}</span>
+                </div>
+              )}
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                You can review or correct the text in the composer below before sending.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleConfirmVoice}
+                  className="h-8 gap-1.5 text-xs font-semibold"
+                >
+                  <Check className="size-3.5" aria-hidden="true" />
+                  Continue & Ask ORCA
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleEditVoice}
+                  className="h-8 gap-1.5 text-xs font-semibold"
+                >
+                  <Pencil className="size-3.5" aria-hidden="true" />
+                  Edit Text
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDiscardVoice}
+                  className="h-8 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                >
+                  Discard
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="composer-box">
         <label htmlFor="assistant-message" className="sr-only">Message Ask ORCA</label>
         <textarea ref={composer} id="assistant-message" rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder="Ask about marine conditions, PFZ, or operational limits..." className="composer-input" />
         <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] px-2 py-2">
           <p className="hidden text-xs text-[var(--muted-foreground)] sm:block">Enter to send · Shift+Enter for a new line</p>
-          <div className="ml-auto flex gap-2">{busy && <Button type="button" variant="secondary" size="icon" aria-label="Cancel assistant request" onClick={onCancel}><Square aria-hidden="true" className="size-4" /></Button>}<Button type="button" size="icon" aria-label="Send message" disabled={!draft.trim() || busy} onClick={submit}>{busy ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}</Button></div>
+          <div className="ml-auto flex gap-2">
+            <Button
+              type="button"
+              variant={recorder.isRecording ? "danger" : "secondary"}
+              size="icon"
+              aria-label={recorder.isRecording ? "Stop voice recording" : "Record voice query"}
+              title={recorder.isRecording ? "Stop recording (max 30s)" : "Record voice query in your language (up to 30s)"}
+              disabled={busy || isTranscribing}
+              onClick={recorder.isRecording ? handleStopRecording : handleStartRecording}
+              className={recorder.isRecording ? "animate-pulse border-red-500 bg-red-600 text-white hover:bg-red-700" : ""}
+            >
+              {recorder.isRecording ? <Square className="size-4 fill-current" /> : <Mic className="size-4" />}
+            </Button>
+            {busy && <Button type="button" variant="secondary" size="icon" aria-label="Cancel assistant request" onClick={onCancel}><Square aria-hidden="true" className="size-4" /></Button>}
+            <Button type="button" size="icon" aria-label="Send message" disabled={!draft.trim() || busy || isTranscribing} onClick={submit}>
+              {busy ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

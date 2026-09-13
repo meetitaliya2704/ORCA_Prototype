@@ -172,6 +172,19 @@ export type AssistantApiResponse = z.infer<typeof assistantApiResponseSchema>;
 export type AssistantSourceSummary = z.infer<typeof assistantSourceSchema>;
 export type AssistantContextValues = z.infer<typeof assistantContextValuesSchema>;
 
+export const voiceTranscriptionResponseSchema = z.object({
+  text: z.string(),
+  language: z.string().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+  requires_confirmation: z.boolean().default(false),
+  confirmation_prompt: z.string().nullable().optional(),
+  detected_coordinates: z.tuple([z.number(), z.number()]).nullable().optional(),
+  detected_limits: z.record(z.string(), z.number()).nullable().optional(),
+  safety_warning: z.string().nullable().optional(),
+});
+
+export type VoiceTranscriptionResponse = z.infer<typeof voiceTranscriptionResponseSchema>;
+
 export function contextValuesToApiFields(values: AssistantContextValues) {
   const parsed = assistantContextValuesSchema.parse(values);
   const numberOrNull = (value: string) => value.trim() ? Number(value) : null;

@@ -661,6 +661,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except ImportError:
             raise RuntimeError("ASSISTANT_DEPENDENCY_MISSING") from None
 
+    app.state.speech_service = None
+    if (
+        settings.speech_transcription_enabled
+        and settings.groq_api_key is not None
+        and settings.groq_api_key.get_secret_value().strip()
+    ):
+        from app.services.speech import GroqSpeechTranscriptionService
+
+        app.state.speech_service = GroqSpeechTranscriptionService(
+            api_key=settings.groq_api_key,
+            model=settings.orca_speech_model,
+            base_url=settings.groq_base_url,
+            timeout_seconds=settings.speech_timeout_seconds,
+            max_file_bytes=settings.speech_max_file_bytes,
+        )
+
     try:
         yield
     finally:
