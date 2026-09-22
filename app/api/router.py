@@ -8,7 +8,6 @@ from app.api.routes import (
     marine,
     pfz,
     pfz_journey,
-    speech,
     websocket,
 )
 
@@ -16,7 +15,6 @@ from app.api.routes import (
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(assistant.router)
-api_router.include_router(speech.router)
 api_router.include_router(assessment.router)
 api_router.include_router(evidence.router)
 api_router.include_router(marine.router)

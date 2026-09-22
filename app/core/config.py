@@ -50,11 +50,6 @@ class Settings(BaseSettings):
     )
     openrouter_api_key: SecretStr | None = None
 
-    orca_speech_model: str = Field(default="whisper-large-v3-turbo", min_length=1)
-    speech_transcription_enabled: bool = True
-    speech_max_file_bytes: int = Field(default=15 * 1024 * 1024, ge=1024, le=25 * 1024 * 1024)
-    speech_timeout_seconds: float = Field(default=15.0, ge=1.0, le=60.0)
-
     redis_enabled: bool = False
     redis_url: str | None = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 300
