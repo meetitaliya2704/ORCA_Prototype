@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import math
+from typing import Any
 
+from app.services.geospatial import line_intersects_polygon, point_to_segment_distance_km
 from app.schemas.assessment import (
     AssessmentOutcome,
     AssessmentReason,
@@ -231,3 +233,133 @@ def evaluate_operational_limits(
         reasons=tuple(reasons),
         missing_critical_evidence=tuple(missing),
     )
+
+
+def apply_official_imd_warnings(
+    base_evaluation: RuleEvaluation,
+    port_warning_signals: list[int] | None = None,
+    fishermen_warning_active: bool = False,
+    cyclone_warning_active: bool = False,
+    warning_details: str | None = None,
+) -> RuleEvaluation:
+    """Deterministically applies official IMD warnings.
+    
+    In accordance with AGENTS.md Rule 7: An active official warning must take precedence
+    over a favorable model-derived score.
+    """
+    severe_signals = [sig for sig in (port_warning_signals or []) if sig >= 3]
+    has_veto = bool(severe_signals or fishermen_warning_active or cyclone_warning_active)
+
+    if not has_veto:
+        return base_evaluation
+
+    new_reasons = list(base_evaluation.reasons)
+    # Remove the placeholder disclaimer if official warnings are now integrated
+    new_reasons = [r for r in new_reasons if r.code != "OFFICIAL_WARNINGS_NOT_INTEGRATED"]
+
+    if cyclone_warning_active:
+        new_reasons.insert(0, AssessmentReason(
+            code="OFFICIAL_IMD_CYCLONE_WARNING",
+            message=warning_details or "Active IMD Cyclone Cone or Warning in sea corridor. Operation not recommended.",
+            evidence_item="imd_cyclone",
+        ))
+    elif fishermen_warning_active:
+        new_reasons.insert(0, AssessmentReason(
+            code="OFFICIAL_IMD_FISHERMEN_WARNING",
+            message=warning_details or "Official IMD bulletin: Fishermen advised NOT to venture into deep sea.",
+            evidence_item="imd_coastal_bulletin",
+        ))
+    elif severe_signals:
+        max_sig = max(severe_signals)
+        new_reasons.insert(0, AssessmentReason(
+            code="OFFICIAL_IMD_PORT_WARNING",
+            message=warning_details or f"Port Danger Signal {max_sig} hoisted by IMD. Squally or severe weather active.",
+            evidence_item="imd_port_warning",
+        ))
+
+    return RuleEvaluation(
+        outcome=AssessmentOutcome.LIMIT_EXCEEDED,
+        evidence_confidence=base_evaluation.evidence_confidence,
+        rules=base_evaluation.rules,
+        reasons=tuple(new_reasons),
+        missing_critical_evidence=base_evaluation.missing_critical_evidence,
+    )
+
+
+@dataclass(frozen=True)
+class CorridorHazardEvaluation:
+    vetoed: bool
+    veto_code: str | None
+    veto_message: str | None
+    hazard_title: str | None
+    distance_km: float | None = None
+
+
+def evaluate_corridor_imd_hazards(
+    origin_lon: float,
+    origin_lat: float,
+    destination_lon: float,
+    destination_lat: float,
+    hazard_features: list[dict] | list[Any],
+    port_proximity_buffer_km: float = 25.0,
+) -> CorridorHazardEvaluation:
+    """Deterministically checks if a navigation line intersects active official IMD hazards.
+    
+    1. Cyclone cone polygons: Vetoes if line intersects or endpoints lie inside the cone.
+    2. Severe port warnings: Vetoes if any port with signal >= 3 lies within `port_proximity_buffer_km` (default 25km) of the corridor.
+    """
+    line = [(origin_lon, origin_lat), (destination_lon, destination_lat)]
+
+    for feature in hazard_features:
+        if hasattr(feature, "geometry"):
+            geom = feature.geometry if isinstance(feature.geometry, dict) else feature.geometry.model_dump()
+            props = feature.properties if isinstance(feature.properties, dict) else feature.properties.model_dump()
+        elif isinstance(feature, dict):
+            geom = feature.get("geometry", {})
+            props = feature.get("properties", {})
+        else:
+            continue
+
+        geom_type = geom.get("type")
+        hazard_type = props.get("hazard_type")
+        title = props.get("title", "Official IMD Hazard")
+
+        # 1. Cyclone Cone Polygon
+        if geom_type in ("Polygon", "MultiPolygon") or hazard_type == "cyclone_cone":
+            if line_intersects_polygon(line, geom):
+                return CorridorHazardEvaluation(
+                    vetoed=True,
+                    veto_code="OFFICIAL_IMD_CYCLONE_WARNING",
+                    veto_message=f"Navigation corridor intersects {title}. Severe cyclonic conditions active.",
+                    hazard_title=title,
+                )
+
+        # 2. Port Warning Points
+        elif geom_type == "Point" or hazard_type == "port_warning":
+            coords = geom.get("coordinates")
+            signal_num = props.get("signal_number", 0)
+            if coords and len(coords) >= 2 and signal_num >= 3:
+                port_lon, port_lat = float(coords[0]), float(coords[1])
+                dist_km = point_to_segment_distance_km(
+                    port_lon, port_lat, origin_lon, origin_lat, destination_lon, destination_lat
+                )
+                if dist_km <= port_proximity_buffer_km:
+                    return CorridorHazardEvaluation(
+                        vetoed=True,
+                        veto_code="OFFICIAL_IMD_PORT_WARNING",
+                        veto_message=(
+                            f"Navigation corridor passes within {dist_km:.1f} km of {title} (Signal {signal_num}). "
+                            "Squally or dangerous sea conditions active."
+                        ),
+                        hazard_title=title,
+                        distance_km=dist_km,
+                    )
+
+    return CorridorHazardEvaluation(
+        vetoed=False,
+        veto_code=None,
+        veto_message=None,
+        hazard_title=None,
+    )
+
+

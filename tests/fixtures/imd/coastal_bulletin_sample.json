@@ -1,0 +1,32 @@
+{
+  "status": "success",
+  "bulletin_number": "CB-20260922-12",
+  "issued_at": "2026-09-22T08:00:00Z",
+  "bulletins": [
+    {
+      "coastal_zone": "North Gujarat Coast (Jakhau to Diu)",
+      "wind_direction": "South-Westerly to Westerly",
+      "wind_speed_knots_min": 25.0,
+      "wind_speed_knots_max": 35.0,
+      "wind_gusts_knots": 45.0,
+      "sea_condition": "rough",
+      "fishermen_warning": true,
+      "advisory_text": "Squally weather with wind speed reaching 45-55 kmph gusting to 65 kmph likely to prevail. Fishermen are advised NOT to venture into deep sea during next 24 hours.",
+      "valid_from": "2026-09-22T08:00:00Z",
+      "valid_to": "2026-09-23T08:00:00Z"
+    },
+    {
+      "coastal_zone": "Konkan-Goa Coast",
+      "wind_direction": "Westerly",
+      "wind_speed_knots_min": 15.0,
+      "wind_speed_knots_max": 20.0,
+      "wind_gusts_knots": 25.0,
+      "sea_condition": "moderate",
+      "fishermen_warning": false,
+      "advisory_text": "Moderate sea conditions. Normal fishing operations may proceed with regular vigilance.",
+      "valid_from": "2026-09-22T08:00:00Z",
+      "valid_to": "2026-09-23T08:00:00Z"
+    }
+  ]
+}
+

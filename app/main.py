@@ -531,11 +531,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if app.state.evidence_service is not None
         else None
     )
+    from app.api.routes.warnings import get_imd_service
+
     app.state.pfz_journey_service = (
         PFZJourneyService(
             pfz_service=app.state.pfz_nearest_service,
             evidence_service=app.state.evidence_service,
             assessment_service=app.state.assessment_service,
+            imd_service=get_imd_service() if settings.imd_enabled else None,
         )
         if app.state.evidence_service is not None
         and app.state.assessment_service is not None

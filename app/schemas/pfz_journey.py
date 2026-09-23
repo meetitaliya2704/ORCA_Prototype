@@ -158,6 +158,10 @@ class JourneyReasonCode(StrEnum):
     ROUTE_NOT_EVALUATED = "ROUTE_NOT_EVALUATED"
     GEOFENCES_NOT_EVALUATED = "GEOFENCES_NOT_EVALUATED"
     OFFICIAL_WARNINGS_NOT_INTEGRATED = "OFFICIAL_WARNINGS_NOT_INTEGRATED"
+    OFFICIAL_IMD_PORT_WARNING = "OFFICIAL_IMD_PORT_WARNING"
+    OFFICIAL_IMD_FISHERMEN_WARNING = "OFFICIAL_IMD_FISHERMEN_WARNING"
+    OFFICIAL_IMD_CYCLONE_WARNING = "OFFICIAL_IMD_CYCLONE_WARNING"
+    ROUTE_HAZARD_INTERSECTION = "ROUTE_HAZARD_INTERSECTION"
     PFZ_DOES_NOT_GUARANTEE_FISH_PRESENCE = (
         "PFZ_DOES_NOT_GUARANTEE_FISH_PRESENCE"
     )
@@ -169,9 +173,9 @@ class JourneyReason(BaseModel):
 
 
 class JourneyLimitations(BaseModel):
-    route_evaluated: Literal[False] = False
-    geofences_evaluated: Literal[False] = False
-    official_warning_coverage: Literal["not_integrated"] = "not_integrated"
+    route_evaluated: bool = False
+    geofences_evaluated: bool = False
+    official_warning_coverage: Literal["not_integrated", "imd_active", "live"] = "not_integrated"
 
 
 class JourneyPointGeometry(BaseModel):

@@ -8,6 +8,7 @@ from app.api.routes import (
     marine,
     pfz,
     pfz_journey,
+    warnings,
     websocket,
 )
 
@@ -20,4 +21,7 @@ api_router.include_router(evidence.router)
 api_router.include_router(marine.router)
 api_router.include_router(pfz.router)
 api_router.include_router(pfz_journey.router)
+api_router.include_router(warnings.router)
 api_router.include_router(websocket.router)
+
+

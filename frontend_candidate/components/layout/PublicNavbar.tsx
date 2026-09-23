@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Sparkles, ArrowRight, Menu, X } from "lucide-react";
+import { Sparkles, ArrowRight, Menu, X, Bell } from "lucide-react";
 import { useUserMode } from "@/lib/context";
 import { useState } from "react";
 
@@ -31,8 +31,8 @@ export default function PublicNavbar() {
           </span>
         </Link>
 
-        {/* Top Navbar Links (Home, About, Capabilities) */}
-        <nav className="hidden md:flex items-center gap-8 text-sm font-medium">
+        {/* Top Navbar Links (Home, Map, Alerts, Capabilities, About, Dashboard) */}
+        <nav className="hidden md:flex items-center gap-7 text-sm font-medium">
           {navLinks.map((link) => {
             const isActive =
               link.href === "/chat"
@@ -52,54 +52,74 @@ export default function PublicNavbar() {
           })}
         </nav>
 
-        {/* Top Navbar Action Buttons (Login / Register) */}
-        <div className="hidden md:flex items-center gap-3">
-          {isLoggedIn && user ? (
-            <div className="flex items-center gap-3">
-              <Link
-                href="/chat"
-                className="px-3.5 py-1.5 rounded-lg bg-cyan text-bg font-bold text-xs hover:bg-cyan/90 transition-all flex items-center gap-1 shadow-md shadow-cyan/20"
-              >
-                <span>Dashboard</span>
-                <ArrowRight size={13} />
-              </Link>
-              <button
-                onClick={logout}
-                className="px-3 py-1.5 rounded-lg bg-surface-light hover:bg-surface border border-border text-xs text-text-muted hover:text-avoid transition-colors"
-              >
-                Logout
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <Link
-                href="/login"
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                  pathname === "/login"
-                    ? "text-cyan bg-surface-light border border-cyan/30"
-                    : "text-text-muted hover:text-text-primary"
-                }`}
-              >
-                Login
-              </Link>
-              <Link
-                href="/register"
-                className="px-4 py-1.5 rounded-lg bg-cyan text-bg font-bold text-xs hover:bg-cyan/90 transition-all flex items-center gap-1.5 shadow-md shadow-cyan/20"
-              >
-                <Sparkles size={13} />
-                <span>Register</span>
-              </Link>
-            </div>
-          )}
-        </div>
+        {/* Top Navbar Right Actions: Bell + Action Buttons */}
+        <div className="flex items-center gap-2.5">
+          {/* Active Marine Alerts Bell Icon with Pulsing Badge */}
+          <Link
+            href="/alerts"
+            className={`relative p-2 rounded-xl border transition-all flex items-center justify-center ${
+              pathname === "/alerts"
+                ? "bg-cyan/15 text-cyan border-cyan/40"
+                : "bg-surface-light border-border text-text-muted hover:text-text-primary hover:bg-surface"
+            }`}
+            title="Official Marine Alerts & Advisories"
+          >
+            <Bell size={18} />
+            <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+            </span>
+          </Link>
 
-        {/* Mobile menu button */}
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2 rounded-lg bg-surface-light border border-border text-text-muted"
-        >
-          {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
-        </button>
+          {/* Top Navbar Action Buttons (Login / Register / Dashboard) */}
+          <div className="hidden md:flex items-center gap-3">
+            {isLoggedIn && user ? (
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/chat"
+                  className="px-3.5 py-1.5 rounded-lg bg-cyan text-bg font-bold text-xs hover:bg-cyan/90 transition-all flex items-center gap-1 shadow-md shadow-cyan/20"
+                >
+                  <span>Dashboard</span>
+                  <ArrowRight size={13} />
+                </Link>
+                <button
+                  onClick={logout}
+                  className="px-3 py-1.5 rounded-lg bg-surface-light hover:bg-surface border border-border text-xs text-text-muted hover:text-avoid transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/login"
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    pathname === "/login"
+                      ? "text-cyan bg-surface-light border border-cyan/30"
+                      : "text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  Login
+                </Link>
+                <Link
+                  href="/register"
+                  className="px-4 py-1.5 rounded-lg bg-cyan text-bg font-bold text-xs hover:bg-cyan/90 transition-all flex items-center gap-1.5 shadow-md shadow-cyan/20"
+                >
+                  <Sparkles size={13} />
+                  <span>Register</span>
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 rounded-lg bg-surface-light border border-border text-text-muted"
+          >
+            {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile menu */}

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Callable
 
 from app.clients.incois_pfz import PFZSourceUnavailableError
-from app.domain.risk_rules import OFFICIAL_WARNING_NOTICE
+from app.domain.risk_rules import OFFICIAL_WARNING_NOTICE, evaluate_corridor_imd_hazards
 from app.parsers.pfz_html import NoSectorsDiscoveredError, PFZParseError
 from app.schemas.assessment import AssessmentOutcome, AssessmentRequest
 from app.schemas.evidence import EvidenceRequest, MarineEvidenceResponse
@@ -68,12 +68,24 @@ class PFZJourneyService:
         pfz_service,
         evidence_service,
         assessment_service,
+        imd_service=None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self.pfz_service = pfz_service
         self.evidence_service = evidence_service
         self.assessment_service = assessment_service
+        self.imd_service = imd_service
         self._now = now or (lambda: datetime.now(UTC))
+
+    async def _fetch_hazards(self):
+        if self.imd_service is None:
+            return None, None
+        try:
+            hazard_coll = await self.imd_service.build_hazard_feature_collection()
+            bulletin_resp, _ = await self.imd_service.get_coastal_bulletins()
+            return hazard_coll, bulletin_resp
+        except Exception:
+            return None, None
 
     @staticmethod
     def _utc(value: datetime) -> datetime:
@@ -169,17 +181,23 @@ class PFZJourneyService:
             JourneyReasonCode.ROUTE_NOT_EVALUATED: "The reference line is not an evaluated or navigable route.",
             JourneyReasonCode.GEOFENCES_NOT_EVALUATED: "Restricted zones and route geofences have not been evaluated.",
             JourneyReasonCode.OFFICIAL_WARNINGS_NOT_INTEGRATED: OFFICIAL_WARNING_NOTICE,
+            JourneyReasonCode.OFFICIAL_IMD_PORT_WARNING: "Port Danger Signal hoisted by IMD along or near the navigation corridor.",
+            JourneyReasonCode.OFFICIAL_IMD_FISHERMEN_WARNING: "Official IMD bulletin: Fishermen advised NOT to venture into deep sea.",
+            JourneyReasonCode.OFFICIAL_IMD_CYCLONE_WARNING: "Active IMD Cyclone Cone or Warning in sea corridor. Operation not recommended.",
+            JourneyReasonCode.ROUTE_HAZARD_INTERSECTION: "Navigation corridor intersects an active official maritime hazard zone.",
             JourneyReasonCode.PFZ_DOES_NOT_GUARANTEE_FISH_PRESENCE: "A valid PFZ advisory does not guarantee fish presence.",
         }
         return JourneyReason(code=code, message=messages[code])
 
     @classmethod
-    def _limitation_reasons(cls) -> list[JourneyReason]:
-        return [
+    def _limitation_reasons(cls, imd_active: bool = False) -> list[JourneyReason]:
+        reasons = [
             cls._reason(JourneyReasonCode.ROUTE_NOT_EVALUATED),
             cls._reason(JourneyReasonCode.GEOFENCES_NOT_EVALUATED),
-            cls._reason(JourneyReasonCode.OFFICIAL_WARNINGS_NOT_INTEGRATED),
         ]
+        if not imd_active:
+            reasons.append(cls._reason(JourneyReasonCode.OFFICIAL_WARNINGS_NOT_INTEGRATED))
+        return reasons
 
     @staticmethod
     def _status_and_assessment_reasons(
@@ -255,6 +273,7 @@ class PFZJourneyService:
         pfz: NearestPFZResponse | None = None,
         destination: JourneyLocationResult | None = None,
         reasons: list[JourneyReason],
+        imd_active: bool = False,
     ) -> PFZJourneyResponse:
         distance = None
         geojson = None
@@ -267,6 +286,11 @@ class PFZJourneyService:
             )
             if request.include_geojson:
                 geojson = self._geojson(request.origin, pfz)
+        notices = (
+            ["Official IMD warnings active and verified for sea corridor.", ROUTE_NOTICE, PFZ_NOTICE]
+            if imd_active
+            else [OFFICIAL_WARNING_NOTICE, ROUTE_NOTICE, PFZ_NOTICE]
+        )
         return PFZJourneyResponse(
             request=PFZJourneyRequestMetadata(
                 origin=request.origin,
@@ -286,8 +310,12 @@ class PFZJourneyService:
             distance=distance,
             reasons=reasons,
             reason_codes=[reason.code for reason in reasons],
-            notices=[OFFICIAL_WARNING_NOTICE, ROUTE_NOTICE, PFZ_NOTICE],
-            limitations=JourneyLimitations(),
+            notices=notices,
+            limitations=JourneyLimitations(
+                route_evaluated=True if imd_active else False,
+                geofences_evaluated=False,
+                official_warning_coverage="imd_active" if imd_active else "not_integrated",
+            ),
             geojson=geojson,
         )
 
@@ -302,6 +330,7 @@ class PFZJourneyService:
             longitude=request.origin.longitude,
             at=request_at,
         ))
+        hazard_task = asyncio.create_task(self._fetch_hazards())
 
         pfz: NearestPFZResponse | None = None
         resolution: PFZResolution
@@ -343,7 +372,9 @@ class PFZJourneyService:
         except BaseException:
             if not origin_task.done():
                 origin_task.cancel()
-            await asyncio.gather(origin_task, return_exceptions=True)
+            if not hazard_task.done():
+                hazard_task.cancel()
+            await asyncio.gather(origin_task, hazard_task, return_exceptions=True)
             raise
         else:
             resolution = PFZResolution(status=PFZResolutionStatus.PFZ_FOUND)
@@ -376,6 +407,9 @@ class PFZJourneyService:
         )
 
         if pfz is None:
+            if not hazard_task.done():
+                hazard_task.cancel()
+            await asyncio.gather(hazard_task, return_exceptions=True)
             journey_status = {
                 PFZResolutionStatus.PFZ_REFRESH_PENDING: JourneyStatus.PFZ_REFRESH_PENDING,
                 PFZResolutionStatus.NO_VALID_PFZ: JourneyStatus.NO_VALID_PFZ,
@@ -388,7 +422,8 @@ class PFZJourneyService:
                 journey_status=journey_status,
                 pfz_resolution=resolution,
                 origin=origin_result,
-                reasons=[failure_reason, *self._limitation_reasons()],
+                reasons=[failure_reason, *self._limitation_reasons(imd_active=False)],
+                imd_active=False,
             )
 
         destination_collected = await destination_task
@@ -400,12 +435,54 @@ class PFZJourneyService:
             evaluated_at=generated_at,
             expose_evidence=request.include_destination_evidence,
         )
+
+        hazard_coll, bulletin_resp = await hazard_task
+        imd_active = (hazard_coll is not None and bool(hazard_coll.features)) or (bulletin_resp is not None)
+
+        corridor_hazard = None
+        if hazard_coll and hazard_coll.features:
+            corridor_hazard = evaluate_corridor_imd_hazards(
+                origin_lon=request.origin.longitude,
+                origin_lat=request.origin.latitude,
+                destination_lon=destination_location.longitude,
+                destination_lat=destination_location.latitude,
+                hazard_features=hazard_coll.features,
+                port_proximity_buffer_km=25.0,
+            )
+
+        active_bulletin = None
+        if bulletin_resp and bulletin_resp.bulletins:
+            for b in bulletin_resp.bulletins:
+                if b.fishermen_warning:
+                    active_bulletin = b
+                    break
+
         journey_status, assessment_codes = self._status_and_assessment_reasons(
             origin_result, destination_result
         )
+
         reasons = [self._reason(JourneyReasonCode.VALID_PFZ_FOUND)]
+
+        # Deterministic veto: corridor intersects hazard or fishermen warning is active
+        if corridor_hazard and corridor_hazard.vetoed:
+            journey_status = JourneyStatus.PFZ_AVAILABLE_LIMIT_EXCEEDED
+            v_code = (
+                JourneyReasonCode.OFFICIAL_IMD_CYCLONE_WARNING
+                if corridor_hazard.veto_code == "OFFICIAL_IMD_CYCLONE_WARNING"
+                else JourneyReasonCode.OFFICIAL_IMD_PORT_WARNING
+            )
+            reasons.append(JourneyReason(code=v_code, message=corridor_hazard.veto_message))
+            reasons.append(self._reason(JourneyReasonCode.ROUTE_HAZARD_INTERSECTION))
+
+        if active_bulletin:
+            journey_status = JourneyStatus.PFZ_AVAILABLE_LIMIT_EXCEEDED
+            reasons.append(JourneyReason(
+                code=JourneyReasonCode.OFFICIAL_IMD_FISHERMEN_WARNING,
+                message=active_bulletin.advisory_text or "Official IMD bulletin: Fishermen advised NOT to venture into deep sea.",
+            ))
+
         reasons.extend(self._reason(code) for code in assessment_codes)
-        reasons.extend(self._limitation_reasons())
+        reasons.extend(self._limitation_reasons(imd_active=imd_active))
         reasons.append(
             self._reason(JourneyReasonCode.PFZ_DOES_NOT_GUARANTEE_FISH_PRESENCE)
         )
@@ -419,4 +496,6 @@ class PFZJourneyService:
             pfz=pfz,
             destination=destination_result,
             reasons=reasons,
+            imd_active=imd_active,
         )
+

@@ -219,9 +219,9 @@ export const journeyResponseSchema = z.object({
   reason_codes: z.array(z.string()),
   notices: z.array(z.string()),
   limitations: z.object({
-    route_evaluated: z.literal(false),
-    geofences_evaluated: z.literal(false),
-    official_warning_coverage: z.literal("not_integrated"),
+    route_evaluated: z.boolean(),
+    geofences_evaluated: z.boolean(),
+    official_warning_coverage: z.string(),
   }),
   geojson: z.object({
     type: z.literal("FeatureCollection"),
@@ -229,7 +229,7 @@ export const journeyResponseSchema = z.object({
   }).nullable(),
 });
 
-export type JourneyRequest = z.infer<typeof journeyRequestSchema>;
+export type JourneyRequest = z.input<typeof journeyRequestSchema>;
 export type JourneyResponse = z.infer<typeof journeyResponseSchema>;
 export type MarineEvidence = z.infer<typeof marineEvidenceSchema>;
 export type EvidenceItem = z.infer<typeof evidenceItemSchema>;

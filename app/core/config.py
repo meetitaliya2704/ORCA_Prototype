@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     )
     openrouter_api_key: SecretStr | None = None
 
+    # India Meteorological Department (IMD) Official API
+    imd_enabled: bool = False
+    imd_base_url: str = Field(default="https://api.imd.gov.in", min_length=1)
+    imd_api_key: SecretStr | None = None
+    imd_email: str | None = None
+    imd_password: SecretStr | None = None
+    imd_bound_ip: str | None = None
+
     redis_enabled: bool = False
     redis_url: str | None = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 300

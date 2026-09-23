@@ -1,0 +1,44 @@
+{
+  "status": "success",
+  "bulletin_number": "PW-20260922-01",
+  "issued_at": "2026-09-22T06:00:00Z",
+  "warnings": [
+    {
+      "port_id": "IN-VRV",
+      "port_name": "Veraval",
+      "state": "Gujarat",
+      "latitude": 20.9000,
+      "longitude": 70.3667,
+      "signal_number": 3,
+      "signal_type": "Local Cautionary Signal No. III",
+      "signal_description": "Port is threatened by squally weather. Wind speeds 40-50 kmph expected in coastal waters.",
+      "issue_time": "2026-09-22T06:00:00Z",
+      "valid_until": "2026-09-23T06:00:00Z"
+    },
+    {
+      "port_id": "IN-IXY",
+      "port_name": "Kandla (Deendayal Port)",
+      "state": "Gujarat",
+      "latitude": 23.0000,
+      "longitude": 70.2167,
+      "signal_number": 3,
+      "signal_type": "Local Cautionary Signal No. III",
+      "signal_description": "Squally weather with surface wind speed reaching 45 kmph.",
+      "issue_time": "2026-09-22T06:00:00Z",
+      "valid_until": "2026-09-23T06:00:00Z"
+    },
+    {
+      "port_id": "IN-PRT",
+      "port_name": "Paradip",
+      "state": "Odisha",
+      "latitude": 20.2644,
+      "longitude": 86.6953,
+      "signal_number": 1,
+      "signal_type": "Distant Cautionary Signal No. I",
+      "signal_description": "Low pressure area formed over North Bay of Bengal.",
+      "issue_time": "2026-09-22T06:00:00Z",
+      "valid_until": "2026-09-23T06:00:00Z"
+    }
+  ]
+}
+

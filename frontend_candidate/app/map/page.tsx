@@ -2,18 +2,21 @@
 
 import { useEffect, useState } from "react";
 import MarineMap from "@/components/map/MarineMap";
-import { mockMapMarkers, userModeConfigs } from "@/lib/mockData";
+import { userModeConfigs } from "@/lib/mockData";
 import { useUserMode } from "@/lib/context";
 import { AlertTriangle, Ship, Navigation, Anchor, RotateCcw, Loader2 } from "lucide-react";
 import { publicConfig } from "@/lib/config";
 import type { SpatialResult } from "@/lib/geojson/spatial";
 import type { JourneyResponse } from "@/lib/schemas/journey";
+import { postJourney } from "@/lib/api/journey";
+import { fetchMarineHazards, type HazardGeoJsonFeature } from "@/lib/api/warnings";
 
 export default function MarineMapPage() {
   const { mode } = useUserMode();
   const [activeFilter, setActiveFilter] = useState<string>("all");
   const [spatialResult, setSpatialResult] = useState<SpatialResult | null>(null);
   const [loadingPfz, setLoadingPfz] = useState(false);
+  const [liveHazards, setLiveHazards] = useState<HazardGeoJsonFeature[]>([]);
   const activeConfig = userModeConfigs[mode] || userModeConfigs.fisherman;
 
   useEffect(() => {
@@ -25,23 +28,32 @@ export default function MarineMapPage() {
     } catch {
       // Ignore storage errors
     }
+
+    // Fetch official live IMD hazards from FastAPI backend
+    fetchMarineHazards()
+      .then((res) => {
+        if (res?.features) {
+          setLiveHazards(res.features);
+        }
+      })
+      .catch((err) => console.error("Error loading official IMD hazards:", err));
   }, []);
 
   const handleFetchLivePfz = async () => {
     setLoadingPfz(true);
     try {
-      const response = await fetch(`${publicConfig.apiBaseUrl}/v1/journey`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          origin: { latitude: 20.5, longitude: 72.9 },
-          operational_limits: { wave_height_max: 2.0, wind_speed_max: 12.0, current_speed_max: 1.0 },
-        }),
+      const result = await postJourney({
+        origin: { latitude: 20.5, longitude: 72.9 },
+        operational_limits: {
+          maximum_significant_wave_height_m: 2.0,
+          maximum_wind_speed_m_s: 12.0,
+          maximum_surface_current_speed_m_s: 1.0,
+        },
+        include_geojson: true,
       });
-      if (response.ok) {
-        const data: JourneyResponse = await response.json();
-        setSpatialResult(data);
-        sessionStorage.setItem("orca_active_spatial_result", JSON.stringify(data));
+      if (result?.data) {
+        setSpatialResult(result.data);
+        sessionStorage.setItem("orca_active_spatial_result", JSON.stringify(result.data));
       }
     } catch (err) {
       console.error("Failed to fetch live PFZ journey:", err);
@@ -55,14 +67,6 @@ export default function MarineMapPage() {
     sessionStorage.removeItem("orca_active_spatial_result");
   };
 
-  const filteredMarkers = mockMapMarkers.filter((m) => {
-    if (activeFilter === "all") return true;
-    if (activeFilter === "hazard") return m.type === "hazard";
-    if (activeFilter === "vessel") return m.type === "vessel";
-    if (activeFilter === "route") return m.type === "route";
-    if (activeFilter === "sensor") return m.type === "sensor" || m.type === "port";
-    return true;
-  });
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-4 md:space-y-6">
@@ -113,7 +117,7 @@ export default function MarineMapPage() {
                 : "bg-surface-light text-text-muted hover:text-text-primary"
             }`}
           >
-            All Markers ({mockMapMarkers.length})
+            All Warnings ({liveHazards.length})
           </button>
           <button
             onClick={() => setActiveFilter("hazard")}
@@ -154,40 +158,58 @@ export default function MarineMapPage() {
       {/* Main MapLibre GL Vector Map View */}
       <MarineMap
         result={spatialResult}
-        markers={filteredMarkers}
+        markers={[]}
         height="h-[500px] lg:h-[600px]"
         showControls={true}
       />
 
-      {/* Quick Marker Roster & Telemetry Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {mockMapMarkers.map((marker) => {
-          const lng = 68.2 + (marker.x / 100) * 8.5;
-          const lat = 23.5 - (marker.y / 100) * 12.0;
+      {/* Official IMD Warning Roster & Telemetry Summary */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-bold text-text-primary flex items-center gap-2">
+          <AlertTriangle size={15} className="text-red-500" />
+          <span>Active Official IMD Maritime Warnings ({liveHazards.length})</span>
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {liveHazards.map((hazard, hIdx) => {
+            const coords = hazard.geometry.coordinates as [number, number];
+            const isSevere = hazard.properties.severity === "DANGER" || hazard.properties.severity === "ALERT";
 
-          return (
-            <div
-              key={marker.id}
-              className="p-3.5 rounded-xl border border-border bg-surface hover:border-cyan/40 transition-all shadow-sm"
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] uppercase tracking-wider font-mono font-bold text-cyan">
-                  {marker.type}
-                </span>
-                <span className="text-[10px] text-text-muted font-mono">
-                  {lat.toFixed(2)}°N, {lng.toFixed(2)}°E
-                </span>
+            return (
+              <div
+                key={`roster-${hIdx}`}
+                className={`p-3.5 rounded-xl border ${
+                  isSevere ? "border-red-500/40 bg-red-950/10" : "border-amber-500/30 bg-amber-950/10"
+                } transition-all shadow-sm`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span
+                    className={`text-[10px] uppercase font-mono font-bold px-1.5 py-0.5 rounded ${
+                      isSevere ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400"
+                    }`}
+                  >
+                    {hazard.properties.hazard_type.replace("_", " ")}
+                  </span>
+                  {hazard.properties.signal_number ? (
+                    <span className="text-[10px] font-mono font-bold text-amber-400">
+                      Signal {hazard.properties.signal_number}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-mono text-text-muted">
+                      {Array.isArray(coords) ? `${coords[1]?.toFixed(2)}°N, ${coords[0]?.toFixed(2)}°E` : ""}
+                    </span>
+                  )}
+                </div>
+                <h4 className="text-xs font-bold text-text-primary mt-1">{hazard.properties.title}</h4>
+                <p className="text-[11px] text-text-muted mt-1 leading-relaxed line-clamp-3">
+                  {hazard.properties.details}
+                </p>
+                <p className="mt-2 text-[10px] text-text-muted border-t border-border/40 pt-1 font-mono">
+                  Issued: {new Date(hazard.properties.issued_at).toLocaleTimeString()}
+                </p>
               </div>
-              <h4 className="text-sm font-bold text-text-primary">{marker.label}</h4>
-              {marker.subtitle && (
-                <p className="text-xs text-text-muted mt-0.5">{marker.subtitle}</p>
-              )}
-              {marker.details?.warning && (
-                <p className="text-[11px] text-avoid font-medium mt-1">⚠️ {marker.details.warning}</p>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Search, Bell, User } from "lucide-react";
 
 export default function TopBar() {
@@ -19,10 +20,14 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-3 md:gap-4">
-        <button className="relative p-2 rounded-lg hover:bg-surface-light transition-colors">
-          <Bell size={18} className="text-text-muted" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-avoid rounded-full" />
-        </button>
+        <Link
+          href="/alerts"
+          className="relative p-2 rounded-lg hover:bg-surface-light transition-colors"
+          title="Active marine alerts"
+        >
+          <Bell size={18} className="text-text-muted hover:text-text-primary" />
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+        </Link>
         <button className="w-8 h-8 rounded-full bg-surface-light border border-border flex items-center justify-center">
           <User size={16} className="text-text-muted" />
         </button>

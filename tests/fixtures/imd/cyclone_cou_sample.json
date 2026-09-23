@@ -1,0 +1,56 @@
+{
+  "status": "success",
+  "cyclone_name": "BOB 02",
+  "basin": "Bay of Bengal",
+  "bulletin_number": "CYCLONE-04",
+  "current_intensity": "Deep Depression",
+  "current_position": {
+    "forecast_hour": 0,
+    "valid_time": "2026-09-22T06:00:00Z",
+    "latitude": 18.5,
+    "longitude": 88.0,
+    "intensity": "Deep Depression",
+    "max_sustained_wind_knots": 30.0,
+    "estimated_central_pressure_hpa": 998.0
+  },
+  "forecast_track": [
+    {
+      "forecast_hour": 6,
+      "valid_time": "2026-09-22T12:00:00Z",
+      "latitude": 19.2,
+      "longitude": 87.2,
+      "intensity": "Cyclonic Storm",
+      "max_sustained_wind_knots": 40.0,
+      "estimated_central_pressure_hpa": 992.0
+    },
+    {
+      "forecast_hour": 12,
+      "valid_time": "2026-09-22T18:00:00Z",
+      "latitude": 20.0,
+      "longitude": 86.5,
+      "intensity": "Severe Cyclonic Storm",
+      "max_sustained_wind_knots": 50.0,
+      "estimated_central_pressure_hpa": 985.0
+    }
+  ],
+  "cone_of_uncertainty": {
+    "type": "Feature",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [87.0, 17.5],
+          [89.5, 18.0],
+          [88.5, 21.0],
+          [85.5, 20.5],
+          [87.0, 17.5]
+        ]
+      ]
+    },
+    "properties": {
+      "storm_name": "BOB 02",
+      "cone_description": "Cone of uncertainty 24-hr envelope"
+    }
+  }
+}
+

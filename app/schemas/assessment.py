@@ -152,6 +152,10 @@ class AssessmentReason(BaseModel):
         "CURRENT_EVIDENCE_MISSING",
         "EVIDENCE_DEGRADED",
         "OFFICIAL_WARNINGS_NOT_INTEGRATED",
+        "OFFICIAL_IMD_PORT_WARNING",
+        "OFFICIAL_IMD_FISHERMEN_WARNING",
+        "OFFICIAL_IMD_CYCLONE_WARNING",
+        "ROUTE_HAZARD_INTERSECTION",
     ]
     message: str = Field(min_length=1)
     rule_id: str | None = None
