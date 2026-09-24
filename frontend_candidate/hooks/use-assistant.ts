@@ -19,17 +19,11 @@ import type {
   AssistantLanguage,
 } from "@/lib/schemas/assistant-api";
 import type { JourneyResponse } from "@/lib/schemas/journey";
+import { useChatSessions, type ConversationSession } from "@/lib/chat-session-context";
+
+export type { ConversationSession };
 
 const parsedFixture = demonstrationConversationSchema.safeParse(demoConversationJson);
-export interface ConversationSession {
-  id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-  messages: AssistantMessage[];
-  conversationId: string | null;
-  latestResponse: AssistantApiResponse | null;
-}
 
 export function useAssistant(
   mode: AssistantMode,
@@ -37,120 +31,51 @@ export function useAssistant(
   context: AssistantContextValues,
   userId: string = "guest",
 ) {
-  const userPrefix = useMemo(() => encodeURIComponent(userId.trim() || "guest"), [userId]);
-  const KEY_SESSIONS = `orca_${userPrefix}_sessions`;
-  const KEY_ACTIVE_SESSION = `orca_${userPrefix}_active_session_id`;
-  const KEY_MESSAGES = `orca_${userPrefix}_messages`;
-  const KEY_CONV_ID = `orca_${userPrefix}_conv_id`;
-  const KEY_RESPONSE = `orca_${userPrefix}_response`;
+  const {
+    sessions,
+    activeSessionId,
+    activeSession,
+    startNewChat: contextStartNewChat,
+    switchSession: contextSwitchSession,
+    deleteSession: contextDeleteSession,
+    saveActiveSession,
+  } = useChatSessions();
 
-  const [sessions, setSessions] = useState<ConversationSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => "session-initial");
-  const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  const [messages, setMessages] = useState<AssistantMessage[]>(() => activeSession?.messages || []);
   const [busy, setBusy] = useState(false);
   const [fixtureError, setFixtureError] = useState(!parsedFixture.success);
-  const [latestResponse, setLatestResponse] = useState<AssistantApiResponse | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [latestResponse, setLatestResponse] = useState<AssistantApiResponse | null>(() => activeSession?.latestResponse || null);
+  const [conversationId, setConversationId] = useState<string | null>(() => activeSession?.conversationId || null);
   const [lastError, setLastError] = useState<OrcaApiError | null>(null);
   const controller = useRef<AbortController | null>(null);
   const lastRequest = useRef<{ text: string; actionId?: string } | null>(null);
+  const currentSessionIdRef = useRef<string>(activeSessionId);
   const isHydrated = useRef(false);
 
+  // Sync state ONLY when activeSessionId actually changes
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const rawSessions = sessionStorage.getItem(KEY_SESSIONS);
-      let loadedSessions: ConversationSession[] = [];
-      if (rawSessions) {
-        const parsed = JSON.parse(rawSessions);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          loadedSessions = parsed;
-        }
-      }
-
-      if (loadedSessions.length > 0) {
-        setSessions(loadedSessions);
-        const savedActiveId = sessionStorage.getItem(KEY_ACTIVE_SESSION);
-        const active = loadedSessions.find((s) => s.id === savedActiveId) || loadedSessions[0];
-        setActiveSessionId(active.id);
-        setMessages(active.messages);
-        setConversationId(active.conversationId);
-        setLatestResponse(active.latestResponse);
-      } else {
-        const newSessionId = `session-${Date.now()}`;
-        setSessions([]);
-        setActiveSessionId(newSessionId);
-        setMessages([]);
-        setConversationId(null);
-        setLatestResponse(null);
-      }
-    } catch {
-      // Storage read failed safely
-    } finally {
-      isHydrated.current = true;
+    currentSessionIdRef.current = activeSessionId;
+    const target = sessions.find((s) => s.id === activeSessionId);
+    if (target) {
+      setMessages(target.messages || []);
+      setConversationId(target.conversationId || null);
+      setLatestResponse(target.latestResponse || null);
+    } else {
+      setMessages([]);
+      setConversationId(null);
+      setLatestResponse(null);
     }
-  }, [KEY_SESSIONS, KEY_ACTIVE_SESSION]);
+    setLastError(null);
+    lastRequest.current = null;
+    isHydrated.current = true;
+  }, [activeSessionId]);
 
+  // Sync messages, conversationId, and latestResponse to the active session in context
   useEffect(() => {
-    if (!isHydrated.current || typeof window === "undefined") return;
-    try {
-      setSessions((prevSessions) => {
-        const existingIndex = prevSessions.findIndex((s) => s.id === activeSessionId);
-        if (messages.length === 0 && existingIndex === -1) {
-          return prevSessions;
-        }
-        const firstUserMsg = messages.find((m) => m.role === "user");
-        const title = firstUserMsg ? firstUserMsg.content.slice(0, 36) : "Conversation";
-        const now = new Date().toISOString();
-
-        let updated: ConversationSession[];
-        if (existingIndex >= 0) {
-          updated = [...prevSessions];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            title: updated[existingIndex].title === "Conversation" ? title : updated[existingIndex].title,
-            updatedAt: now,
-            messages,
-            conversationId,
-            latestResponse,
-          };
-        } else {
-          updated = [
-            {
-              id: activeSessionId,
-              title,
-              createdAt: now,
-              updatedAt: now,
-              messages,
-              conversationId,
-              latestResponse,
-            },
-            ...prevSessions,
-          ];
-        }
-        sessionStorage.setItem(KEY_SESSIONS, JSON.stringify(updated));
-        sessionStorage.setItem(KEY_ACTIVE_SESSION, activeSessionId);
-        if (messages.length > 0) {
-          sessionStorage.setItem(KEY_MESSAGES, JSON.stringify(messages));
-        } else {
-          sessionStorage.removeItem(KEY_MESSAGES);
-        }
-        if (conversationId) {
-          sessionStorage.setItem(KEY_CONV_ID, conversationId);
-        } else {
-          sessionStorage.removeItem(KEY_CONV_ID);
-        }
-        if (latestResponse) {
-          sessionStorage.setItem(KEY_RESPONSE, JSON.stringify(latestResponse));
-        } else {
-          sessionStorage.removeItem(KEY_RESPONSE);
-        }
-        return updated;
-      });
-    } catch {
-      // Storage write failed safely
-    }
-  }, [activeSessionId, messages, conversationId, latestResponse, KEY_SESSIONS, KEY_ACTIVE_SESSION, KEY_MESSAGES, KEY_CONV_ID, KEY_RESPONSE]);
+    if (!isHydrated.current) return;
+    if (messages.length === 0) return;
+    saveActiveSession(messages, conversationId, latestResponse, activeSessionId);
+  }, [messages, conversationId, latestResponse, activeSessionId, saveActiveSession]);
 
   const transport = useMemo(() => {
     if (mode === "live") return new HttpAssistantTransport();
@@ -296,62 +221,24 @@ export function useAssistant(
     controller.current?.abort();
     transport.cancel();
     setBusy(false);
-    const newSessionId = `session-${Date.now()}`;
-    setActiveSessionId(newSessionId);
     setMessages([]);
     setConversationId(null);
     setLatestResponse(null);
     setLastError(null);
     lastRequest.current = null;
-    if (typeof window !== "undefined") {
-      try {
-        sessionStorage.setItem(KEY_ACTIVE_SESSION, newSessionId);
-        sessionStorage.removeItem(KEY_MESSAGES);
-        sessionStorage.removeItem(KEY_CONV_ID);
-        sessionStorage.removeItem(KEY_RESPONSE);
-      } catch {
-        // Ignore
-      }
-    }
-  }, [transport, KEY_ACTIVE_SESSION, KEY_MESSAGES, KEY_CONV_ID, KEY_RESPONSE]);
+    contextStartNewChat();
+  }, [transport, contextStartNewChat]);
 
   const switchSession = useCallback((sessionId: string) => {
     controller.current?.abort();
     transport.cancel();
     setBusy(false);
-    const target = sessions.find((s) => s.id === sessionId);
-    if (!target) return;
-    setActiveSessionId(target.id);
-    setMessages(target.messages);
-    setConversationId(target.conversationId);
-    setLatestResponse(target.latestResponse);
-    setLastError(null);
-    lastRequest.current = null;
-    if (typeof window !== "undefined") {
-      try {
-        sessionStorage.setItem(KEY_ACTIVE_SESSION, target.id);
-      } catch {
-        // Ignore
-      }
-    }
-  }, [sessions, transport, KEY_ACTIVE_SESSION]);
+    contextSwitchSession(sessionId);
+  }, [transport, contextSwitchSession]);
 
   const deleteSession = useCallback((sessionId: string) => {
-    setSessions((prev) => {
-      const filtered = prev.filter((s) => s.id !== sessionId);
-      if (typeof window !== "undefined") {
-        try {
-          sessionStorage.setItem(KEY_SESSIONS, JSON.stringify(filtered));
-        } catch {
-          // Ignore
-        }
-      }
-      return filtered;
-    });
-    if (activeSessionId === sessionId) {
-      startNewChat();
-    }
-  }, [activeSessionId, startNewChat, KEY_SESSIONS]);
+    contextDeleteSession(sessionId);
+  }, [contextDeleteSession]);
 
   const reset = useCallback(() => {
     startNewChat();

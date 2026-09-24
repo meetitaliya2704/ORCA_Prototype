@@ -3,16 +3,13 @@
 import {
   Bot,
   ChevronDown,
-  Clock,
   FlaskConical,
-  History,
   LoaderCircle,
   MessageSquareText,
   RotateCcw,
   Send,
   Sparkles,
   Square,
-  Trash2,
   Waves,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -92,7 +89,6 @@ export function AskOrcaPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [suggestionsOverride, setSuggestionsOverride] = useState<{ messageCount: number; open: boolean } | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const suggestionsOpen = suggestionsOverride?.messageCount === messages.length
@@ -153,28 +149,12 @@ export function AskOrcaPanel({
           <p className="mt-1 max-w-xl text-sm text-[var(--muted-foreground)]">Ask about PFZ advisories, marine conditions, or operational limits.</p>
         </div>
         <div className="flex items-center gap-2">
-          {sessions && sessions.length > 0 && (
-            <Button
-              type="button"
-              variant={historyOpen ? "primary" : "secondary"}
-              size="sm"
-              onClick={() => setHistoryOpen(!historyOpen)}
-              title="View saved conversation sessions"
-              className="h-8 gap-1.5 text-xs font-semibold"
-            >
-              <History aria-hidden="true" className="size-3.5" />
-              History
-              <span className="ml-0.5 rounded-full bg-slate-200 px-1.5 py-0.2 text-[0.65rem] font-bold text-slate-800">
-                {sessions.length}
-              </span>
-            </Button>
-          )}
           {messages.length > 0 && (
             <Button
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => { reset(); setHistoryOpen(false); }}
+              onClick={reset}
               title="Start a new conversation thread"
               className="h-8 gap-1.5 text-xs font-semibold"
             >
@@ -185,83 +165,6 @@ export function AskOrcaPanel({
         </div>
       </div>
     </div>
-
-    {historyOpen && sessions && sessions.length > 0 && (
-      <section className="border-b border-[var(--border)] bg-[var(--surface-raised)] p-3 shadow-inner" aria-label="Conversation History">
-        <div className="flex items-center justify-between pb-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
-            Saved Conversations ({sessions.length})
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setHistoryOpen(false)}
-            className="h-6 text-xs text-[var(--muted-foreground)]"
-          >
-            Close
-          </Button>
-        </div>
-        <div className="grid max-h-56 gap-1.5 overflow-y-auto pr-1">
-          {sessions.map((s) => {
-            const isActive = s.id === activeSessionId;
-            return (
-              <div
-                key={s.id}
-                className={`flex items-center justify-between rounded-lg border p-2.5 transition-colors ${
-                  isActive
-                    ? "border-[var(--secondary)] bg-white shadow-sm"
-                    : "border-[var(--border)] bg-white/70 hover:bg-white"
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSwitchSession?.(s.id);
-                    setHistoryOpen(false);
-                  }}
-                  className="flex min-w-0 flex-1 cursor-pointer flex-col text-left"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-xs font-bold text-[var(--foreground)]">
-                      {s.title}
-                    </span>
-                    {isActive && (
-                      <span className="rounded bg-[var(--secondary)]/15 px-1.5 py-0.5 text-[0.65rem] font-bold text-[var(--secondary)]">
-                        Active
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-[0.7rem] text-[var(--muted-foreground)]">
-                    <span className="flex items-center gap-1">
-                      <Clock aria-hidden="true" className="size-3" />
-                      {new Date(s.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                    <span>•</span>
-                    <span>{s.messages.filter((m) => m.role === "user" || m.role === "assistant").length} messages</span>
-                  </div>
-                </button>
-                {onDeleteSession && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteSession(s.id);
-                    }}
-                    title="Delete session"
-                    className="size-7 shrink-0 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                  >
-                    <Trash2 aria-hidden="true" className="size-3.5" />
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-    )}
 
     <section className="shrink-0 border-b border-[var(--border)]" aria-labelledby="suggested-questions-heading">
       <button type="button" className="flex min-h-11 w-full cursor-pointer items-center gap-2 px-4 py-2 text-left text-sm font-semibold transition-colors hover:bg-[var(--surface-muted)]" aria-expanded={suggestionsOpen} aria-controls="orca-suggested-questions" onClick={() => setSuggestionsForCurrentMessages(!suggestionsOpen)}>
