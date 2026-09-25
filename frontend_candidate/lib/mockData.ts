@@ -363,3 +363,159 @@ export const mockHourlyForecast = [
   { time: "21:00", wave: 1.8, wind: 22, risk: 35 },
   { time: "00:00", wave: 1.5, wind: 16, risk: 25 },
 ];
+
+export const mockFishermanDashboard = {
+  location: "Veraval, Gujarat",
+  updatedAt: "Updated 5 min ago",
+  weatherStatus: "Good conditions for fishing (as per latest data)",
+  decision: {
+    status: "GO" as const,
+    headline: "CAN I GO FISHING?",
+    description:
+      "Yes, it is safe to go fishing today from Veraval. Weather and ocean conditions are favorable with low risk.",
+  },
+  metrics: [
+    {
+      id: "wave",
+      label: "Wave Height",
+      value: "1.2 m",
+      status: "Moderate",
+      tone: "info" as const,
+      source: "IMD / INCOIS",
+    },
+    {
+      id: "wind",
+      label: "Wind Speed",
+      value: "18 km/h",
+      status: "Favorable",
+      tone: "go" as const,
+      source: "IMD",
+    },
+    {
+      id: "storm",
+      label: "Storm",
+      value: "None",
+      status: "No Risk",
+      tone: "go" as const,
+      source: "IMD / INCOIS",
+    },
+    {
+      id: "temp",
+      label: "Sea Temp",
+      value: "28°C",
+      status: "Normal",
+      tone: "info" as const,
+      source: "SST Satellite",
+    },
+  ],
+  whyExplanation: "Based on latest data from multiple sources",
+  forecastTimeline: [
+    { time: "6 AM", wave: "1.2 m", wind: "18 km/h", risk: "Safe", tone: "go" as const },
+    { time: "9 AM", wave: "2.4 m", wind: "28 km/h", risk: "High Risk", tone: "avoid" as const },
+    { time: "12 PM", wave: "2.1 m", wind: "25 km/h", risk: "Caution", tone: "wait" as const },
+    { time: "3 PM", wave: "1.5 m", wind: "20 km/h", risk: "Moderate", tone: "info" as const },
+    { time: "6 PM", wave: "1.3 m", wind: "18 km/h", risk: "Safe", tone: "go" as const },
+  ],
+};
+
+export const mockPortAuthorityDashboard = {
+  kpis: [
+    { label: "Active Alerts", count: 3, change: "+1 from yesterday", tone: "avoid" as const },
+    { label: "Vessels at Risk", count: 5, change: "-2 from yesterday", tone: "wait" as const },
+    { label: "Incidents", count: 1, change: "No change", tone: "info" as const },
+    { label: "Total Vessels", count: 42, change: "+6 from yesterday", tone: "go" as const },
+  ],
+  portStatus: [
+    { port: "Veraval Port", status: "Operational", tone: "go" as const },
+    { port: "Porbandar Port", status: "Operational", tone: "go" as const },
+    { port: "Diu Port", status: "Operational", tone: "go" as const },
+    { port: "Jafrabad Port", status: "Caution", tone: "wait" as const },
+  ],
+  activeAlerts: [
+    {
+      id: "alt-1",
+      title: "Cyclone Alert",
+      location: "Gujarat Coast",
+      severity: "High Risk",
+      time: "2 hours ago",
+    },
+    {
+      id: "alt-2",
+      title: "High Wave Warning",
+      location: "Veraval Area",
+      severity: "Medium Risk",
+      time: "4 hours ago",
+    },
+    {
+      id: "alt-3",
+      title: "Vessel Distress",
+      location: "Lat 20.3, Long 69.1",
+      severity: "High Risk",
+      time: "6 hours ago",
+    },
+  ],
+};
+
+export const mockResearcherDashboard = {
+  regionStats: {
+    averageSST: "28.4°C",
+    sstAnomaly: "+1.5°C",
+    sstRange: "26°C - 31°C",
+    climatologySept: "26.9°C",
+    areaCovered: "~ 250,000 km²",
+  },
+  sstTimeSeries: [
+    { date: "14 Sep", sst: 26.5, avg: 26.9 },
+    { date: "15 Sep", sst: 27.2, avg: 26.9 },
+    { date: "16 Sep", sst: 28.0, avg: 26.9 },
+    { date: "17 Sep", sst: 28.8, avg: 26.9 },
+    { date: "18 Sep", sst: 28.2, avg: 26.9 },
+    { date: "19 Sep", sst: 28.5, avg: 26.9 },
+    { date: "20 Sep", sst: 28.4, avg: 26.9 },
+  ],
+  regionalComparison: [
+    { name: "Veraval", sst: 28.4 },
+    { name: "Porbandar", sst: 27.9 },
+    { name: "Diu", sst: 28.1 },
+    { name: "Jafrabad", sst: 27.6 },
+  ],
+  keyInsights: [
+    "SST is 1.5°C higher than usual in this region.",
+    "No major thermal anomalies detected.",
+    "Conditions are stable for the next 3 days.",
+    "Warmer waters are observed in the southern Arabian Sea.",
+  ],
+};
+
+export const mockFleetOperatorDashboard = {
+  kpis: {
+    status: "Good",
+    statusDetail: "All vessels active",
+    totalVessels: "12",
+    vesselsDetail: "2 en route",
+    avgFuel: "~ 280 L/day",
+    fuelDetail: "↓ 12% from last week",
+  },
+  routeSummary: {
+    from: "Veraval, Gujarat",
+    to: "Mumbai, Maharashtra",
+    risk: "LOW",
+    eta: "6 h 20 m",
+    weather: "Moderate",
+    fuelEstimate: "~ 320 L",
+    distance: "~ 350 nautical miles (≈ 650 km)",
+    alternativeNote: "Safer alternative route available avoiding high wave risk area",
+  },
+  routeComparison: [
+    { parameter: "Distance", selected: "350 nm", alternative: "420 nm" },
+    { parameter: "ETA", selected: "6 h 20 m", alternative: "7 h 45 m" },
+    { parameter: "Risk Level", selected: "Low", alternative: "Medium" },
+    { parameter: "Fuel Estimate", selected: "~ 320 L", alternative: "~ 380 L" },
+  ],
+  recentRoutes: [
+    { route: "Veraval → Mumbai", date: "20 Sep 2026", status: "Completed", tone: "go" as const },
+    { route: "Veraval → Porbandar", date: "18 Sep 2026", status: "Completed", tone: "go" as const },
+    { route: "Okha → Mumbai", date: "15 Sep 2026", status: "Completed", tone: "go" as const },
+    { route: "Veraval → Diu", date: "12 Sep 2026", status: "Caution", tone: "wait" as const },
+  ],
+};

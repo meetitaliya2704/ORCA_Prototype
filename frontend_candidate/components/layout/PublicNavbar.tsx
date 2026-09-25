@@ -14,36 +14,38 @@ export default function PublicNavbar() {
 
   const navLinks = [
     { href: "/", label: "Home" },
+    { href: "/dashboard", label: "Dashboard" },
+    { href: "/map", label: "Nautical Map" },
+    { href: "/alerts", label: "Advisories" },
+    { href: "/capabilities", label: "Features" },
     { href: "/about", label: "About" },
-    { href: "/capabilities", label: "Capabilities" },
-    { href: "/chat", label: "Dashboard" },
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-white/85 backdrop-blur-md border-b border-border">
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-cyan/10 border border-cyan/30 flex items-center justify-center overflow-hidden">
-            <Image src="/brand/oceanix-logo.png" alt="Oceanix logo" width={36} height={36} className="w-full h-full object-cover object-top scale-125" />
+          <div className="w-9 h-9 rounded-xl bg-[#0066CC]/10 border border-[#0066CC]/30 flex items-center justify-center overflow-hidden">
+            <Image src="/brand/oceanix-logo.png" alt="Oceanix" width={36} height={36} className="w-full h-full object-cover scale-125" />
           </div>
-          <span className="font-display font-black text-lg tracking-wide text-text-primary">
+          <span className="font-display font-black text-xl tracking-tight text-slate-900">
             Oceanix
           </span>
         </Link>
 
-        {/* Top Navbar Links (Home, Map, Alerts, Capabilities, About, Dashboard) */}
+        {/* Top Navbar Links */}
         <nav className="hidden md:flex items-center gap-7 text-sm font-medium">
           {navLinks.map((link) => {
             const isActive =
-              link.href === "/chat"
-                ? pathname === "/chat" || pathname === "/map" || pathname === "/alerts"
+              link.href === "/dashboard"
+                ? pathname === "/dashboard" || pathname === "/why-orca"
                 : pathname === link.href;
             return (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`transition-colors hover:text-cyan ${
-                  isActive ? "text-cyan font-semibold" : "text-text-muted"
+                className={`transition-colors hover:text-[#0066CC] ${
+                  isActive ? "text-[#0066CC] font-bold border-b-2 border-[#0066CC] py-5" : "text-slate-600"
                 }`}
               >
                 {link.label}
@@ -53,14 +55,14 @@ export default function PublicNavbar() {
         </nav>
 
         {/* Top Navbar Right Actions: Bell + Action Buttons */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           {/* Active Marine Alerts Bell Icon with Pulsing Badge */}
           <Link
             href="/alerts"
             className={`relative p-2 rounded-xl border transition-all flex items-center justify-center ${
               pathname === "/alerts"
-                ? "bg-cyan/15 text-cyan border-cyan/40"
-                : "bg-surface-light border-border text-text-muted hover:text-text-primary hover:bg-surface"
+                ? "bg-blue-50 text-[#0066CC] border-blue-200"
+                : "bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100"
             }`}
             title="Official Marine Alerts & Advisories"
           >
@@ -71,45 +73,21 @@ export default function PublicNavbar() {
             </span>
           </Link>
 
-          {/* Top Navbar Action Buttons (Login / Register / Dashboard) */}
-          <div className="hidden md:flex items-center gap-3">
-            {isLoggedIn && user ? (
-              <div className="flex items-center gap-3">
-                <Link
-                  href="/chat"
-                  className="px-3.5 py-1.5 rounded-lg bg-cyan text-bg font-bold text-xs hover:bg-cyan/90 transition-all flex items-center gap-1 shadow-md shadow-cyan/20"
-                >
-                  <span>Dashboard</span>
-                  <ArrowRight size={13} />
-                </Link>
-                <button
-                  onClick={logout}
-                  className="px-3 py-1.5 rounded-lg bg-surface-light hover:bg-surface border border-border text-xs text-text-muted hover:text-avoid transition-colors"
-                >
-                  Logout
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <Link
-                  href="/login"
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    pathname === "/login"
-                      ? "text-cyan bg-surface-light border border-cyan/30"
-                      : "text-text-muted hover:text-text-primary"
-                  }`}
-                >
-                  Login
-                </Link>
-                <Link
-                  href="/register"
-                  className="px-4 py-1.5 rounded-lg bg-cyan text-bg font-bold text-xs hover:bg-cyan/90 transition-all flex items-center gap-1.5 shadow-md shadow-cyan/20"
-                >
-                  <Sparkles size={13} />
-                  <span>Register</span>
-                </Link>
-              </div>
-            )}
+          {/* Top Navbar Action Buttons (Login & Try Demo) */}
+          <div className="hidden sm:flex items-center gap-2.5">
+            <Link
+              href="/login"
+              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 border border-slate-200 transition-colors shadow-2xs"
+            >
+              Login
+            </Link>
+
+            <Link
+              href="/select-role"
+              className="px-5 py-2 rounded-xl bg-[#0066CC] hover:bg-[#0052A3] text-white font-extrabold text-xs tracking-wide shadow-md shadow-blue-600/20 transition-all hover:scale-[1.02]"
+            >
+              Try Demo
+            </Link>
           </div>
 
           {/* Mobile menu button */}

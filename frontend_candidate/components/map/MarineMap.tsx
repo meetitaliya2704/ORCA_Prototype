@@ -31,6 +31,13 @@ import { assertGeoJsonCoordinateOrder } from "@/lib/geojson/journey";
 import { isJourneyResponse, spatialFeatures, type SpatialFeature, type SpatialResult } from "@/lib/geojson/spatial";
 import { fetchMarineHazards, type HazardGeoJsonFeature } from "@/lib/api/warnings";
 import type { MapMarker } from "@/lib/types";
+import {
+  RESEARCH_STATIONS,
+  RESEARCH_ZONES,
+  type ResearchLayerType,
+} from "@/lib/researchMapData";
+
+export type { ResearchLayerType } from "@/lib/researchMapData";
 
 
 const markerConfig = {
@@ -78,12 +85,14 @@ function JourneyMapContent({
   result,
   markers = [],
   activeLayers,
+  researchLayer,
   onReady,
   onError,
 }: {
   result: SpatialResult | null;
   markers?: MapMarker[];
   activeLayers: { radar: boolean; ais: boolean; hazards: boolean; routes: boolean };
+  researchLayer?: ResearchLayerType;
   onReady: () => void;
   onError: () => void;
 }) {
@@ -92,6 +101,14 @@ function JourneyMapContent({
   const [hazardFeatures, setHazardFeatures] = useState<HazardGeoJsonFeature[]>([]);
   const [conePolygons, setConePolygons] = useState<{ id: string; points: string; title: string; details: string; center: [number, number] }[]>([]);
   const [trackPolylines, setTrackPolylines] = useState<{ id: string; points: string; title: string }[]>([]);
+  const [projectedResearchPolygons, setProjectedResearchPolygons] = useState<{
+    id: string;
+    points: string;
+    color: string;
+    opacity: number;
+    stroke: string;
+    label: string;
+  }[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -209,7 +226,31 @@ function JourneyMapContent({
 
     setConePolygons(cones);
     setTrackPolylines(tracks);
-  }, [map, referenceLine, hazardFeatures]);
+
+    // 3. Research Layer Oceanic Zones (projected to current screen pixels)
+    if (researchLayer) {
+      const rPolys = RESEARCH_ZONES.map((rz) => {
+        const pts = rz.coordinates
+          .map((coord) => {
+            const p = map.project(coord);
+            return `${p.x},${p.y}`;
+          })
+          .join(" ");
+
+        return {
+          id: rz.id,
+          points: pts,
+          color: rz.color[researchLayer],
+          opacity: rz.fillOpacity[researchLayer],
+          stroke: rz.stroke[researchLayer],
+          label: rz.label[researchLayer],
+        };
+      });
+      setProjectedResearchPolygons(rPolys);
+    } else {
+      setProjectedResearchPolygons([]);
+    }
+  }, [map, referenceLine, hazardFeatures, researchLayer]);
 
   useEffect(() => {
     if (!map) return;
@@ -306,8 +347,21 @@ function JourneyMapContent({
         </div>
       )}
 
-      {/* SVG Map Overlays: Cones, Tracks, and Reference Route */}
+      {/* SVG Map Overlays: Cones, Tracks, Reference Route, and Research Oceanic Zones */}
       <svg aria-hidden="true" className="pointer-events-none absolute inset-0 z-[3] size-full overflow-hidden">
+        {/* Research Oceanic Contour Polygons (projected dynamically on map move) */}
+        {projectedResearchPolygons.map((rp) => (
+          <polygon
+            key={rp.id}
+            points={rp.points}
+            fill={rp.color}
+            fillOpacity={rp.opacity}
+            stroke={rp.stroke}
+            strokeWidth="1.8"
+            strokeDasharray="5 3"
+          />
+        ))}
+
         {/* Cyclone Cones */}
         {conePolygons.map((cp) => (
           <polygon
@@ -372,6 +426,80 @@ function JourneyMapContent({
           </MarkerPopup>
         </LibreMarker>
       ))}
+
+      {/* Research Oceanic Observation Stations (anchored to geographic coordinates) */}
+      {researchLayer &&
+        RESEARCH_STATIONS.map((st) => {
+          const val =
+            researchLayer === "salinity"
+              ? st.salinity
+              : researchLayer === "chlorophyll"
+              ? st.chlorophyll
+              : researchLayer === "anomalies"
+              ? st.anomalies
+              : researchLayer === "trends"
+              ? st.trends
+              : st.sst;
+
+          const color =
+            researchLayer === "salinity"
+              ? st.salinityColor
+              : researchLayer === "chlorophyll"
+              ? st.chlorophyllColor
+              : researchLayer === "anomalies"
+              ? st.anomalyColor
+              : researchLayer === "trends"
+              ? st.trendColor
+              : st.sstColor;
+
+          return (
+            <LibreMarker
+              key={`research-st-${st.id}`}
+              longitude={st.longitude}
+              latitude={st.latitude}
+              anchor="center"
+            >
+              <MarkerContent>
+                <div className="flex flex-col items-center gap-0.5 group cursor-pointer">
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900/90 backdrop-blur-md border border-white/40 text-white font-mono text-[10px] font-bold shadow-lg transition-transform group-hover:scale-115">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span>{val}</span>
+                  </div>
+                  <span className="text-[8.5px] font-bold text-slate-800 bg-white/95 px-1 py-0.2 rounded shadow-2xs border border-slate-300 pointer-events-none whitespace-nowrap opacity-90 group-hover:opacity-100">
+                    {st.name.split(" ")[0]}
+                  </span>
+                </div>
+              </MarkerContent>
+              <MarkerPopup closeButton offset={15}>
+                <div className="w-56 p-2.5 rounded-xl bg-surface border border-border shadow-xl text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-cyan font-mono">
+                      Ocean Sensor
+                    </span>
+                    <span className="text-[9px] text-text-muted font-mono">
+                      Depth: {st.depth}
+                    </span>
+                  </div>
+                  <h4 className="font-bold text-text-primary text-xs leading-tight">
+                    {st.name}
+                  </h4>
+                  <p className="text-[10px] text-text-muted font-mono">
+                    {st.latitude.toFixed(2)}°N, {st.longitude.toFixed(2)}°E
+                  </p>
+                  <div className="pt-1.5 border-t border-border grid grid-cols-2 gap-1 text-[10px]">
+                    <div><span className="text-text-muted">SST:</span> <span className="font-bold font-mono text-amber-500">{st.sst}</span></div>
+                    <div><span className="text-text-muted">Salinity:</span> <span className="font-bold font-mono text-blue-500">{st.salinity}</span></div>
+                    <div><span className="text-text-muted">Chl-a:</span> <span className="font-bold font-mono text-emerald-500">{st.chlorophyll}</span></div>
+                    <div><span className="text-text-muted">Anomaly:</span> <span className="font-bold font-mono text-rose-500">{st.anomalies}</span></div>
+                  </div>
+                </div>
+              </MarkerPopup>
+            </LibreMarker>
+          );
+        })}
 
       {/* Journey Result Markers (Origin & PFZ) */}
       {pointFeatures.map((feature) => {
@@ -565,11 +693,19 @@ export default function MarineMap({
   markers = [],
   height = "h-[500px] lg:h-[580px]",
   showControls = true,
+  center = [72.8, 19.2],
+  zoom = 5.5,
+  locationName = "Arabian Sea & Indian Coastline",
+  researchLayer,
 }: {
   result?: SpatialResult | null;
   markers?: MapMarker[];
   height?: string;
   showControls?: boolean;
+  center?: [number, number];
+  zoom?: number;
+  locationName?: string;
+  researchLayer?: ResearchLayerType;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -601,7 +737,7 @@ export default function MarineMap({
       {/* Top Left Compass & Location Header */}
       <div className="absolute top-3 left-3 z-20 flex items-center gap-2 bg-surface/90 border border-border px-3 py-1.5 rounded-xl shadow-md backdrop-blur-md">
         <Compass size={16} className="text-cyan animate-spin" style={{ animationDuration: "25s" }} />
-        <span className="text-xs font-bold text-text-primary">Arabian Sea & Indian Coastline</span>
+        <span className="text-xs font-bold text-text-primary">{locationName}</span>
         <span className="text-[10px] text-cyan font-mono bg-cyan/10 border border-cyan/30 px-1.5 py-0.2 rounded-md">
           INCOIS Grid
         </span>
@@ -649,8 +785,8 @@ export default function MarineMap({
             light: mapStyle,
             dark: mapStyle,
           }}
-          center={[72.8, 19.2]}
-          zoom={5.5}
+          center={center}
+          zoom={zoom}
           maxZoom={14}
           minZoom={3}
           cooperativeGestures
@@ -659,6 +795,7 @@ export default function MarineMap({
             result={result}
             markers={markers}
             activeLayers={activeLayers}
+            researchLayer={researchLayer}
             onReady={markReady}
             onError={markError}
           />

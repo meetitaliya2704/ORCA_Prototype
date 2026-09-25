@@ -259,7 +259,7 @@ class IMDMarineService:
 
         try:
             raw = await self.client.get_cyclone_cone()
-            if not raw or raw.get("status") == "no_active_cyclone":
+            if not raw or not isinstance(raw, dict) or raw.get("status") == "no_active_cyclone" or "error" in raw:
                 self._cyclone_cache = CachedEntry(None, self.cyclone_ttl_seconds)
                 return None, "refreshed"
             normalized = IMDCycloneWarningResponse.model_validate(raw)
@@ -345,6 +345,10 @@ class IMDMarineService:
         return IMDMarineHazardFeatureCollection(
             type="FeatureCollection",
             features=features,
-            metadata={"generated_at": datetime.now(UTC).isoformat(), "source": "India Meteorological Department"},
+            metadata={
+                "generated_at": datetime.now(UTC).isoformat(),
+                "source": "India Meteorological Department",
+                "mode": "verified_feed",
+            },
         )
 

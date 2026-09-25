@@ -1,175 +1,207 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
+  Play,
   ArrowRight,
   ShieldCheck,
-  Bot,
-  Compass,
-  Radio,
+  BrainCircuit,
+  Waves,
+  Users,
   Anchor,
-  ShieldAlert,
+  Shield,
   Microscope,
+  Compass,
 } from "lucide-react";
 import { useUserMode } from "@/lib/context";
+import type { UserMode } from "@/lib/types";
 
 export default function HomePage() {
-  const { isLoggedIn, user } = useUserMode();
+  const router = useRouter();
+  const { switchRole } = useUserMode();
 
-  const personas = [
+  const handleRoleLaunch = (role: UserMode) => {
+    switchRole(role);
+    router.push("/dashboard");
+  };
+
+  const featurePills = [
     {
-      title: "Coastal Fishermen",
-      role: "Live wave heights, squall warnings & safe navigation",
+      title: "Better Safety",
+      description: "Detect hazards, get early warnings and make safer decisions at sea.",
+      icon: ShieldCheck,
+      color: "text-blue-600 bg-blue-50 border-blue-200",
+    },
+    {
+      title: "Smarter Decisions",
+      description: "Use real-time data and AI insights for optimal routes and operations.",
+      icon: BrainCircuit,
+      color: "text-indigo-600 bg-indigo-50 border-indigo-200",
+    },
+    {
+      title: "Healthier Oceans",
+      description: "Monitor marine health and support sustainable practices.",
+      icon: Waves,
+      color: "text-teal-600 bg-teal-50 border-teal-200",
+    },
+    {
+      title: "Stronger Communities",
+      description: "Protect livelihoods and build a resilient coastal future.",
+      icon: Users,
+      color: "text-cyan-600 bg-cyan-50 border-cyan-200",
+    },
+  ];
+
+  const stakeholders = [
+    {
+      role: "fisherman" as UserMode,
+      title: "Fisherman",
+      description: "Get safe fishing advice, weather alerts and optimal routes for a better tomorrow.",
       icon: Anchor,
-      badge: "Fisherman Mode",
-      color: "text-cyan bg-cyan/10 border-cyan/30",
+      tag: "Coastal Safety",
     },
     {
-      title: "Port & Coastal Authorities",
-      role: "Vessel traffic surveillance, AIS tracking & storm alerts",
-      icon: ShieldAlert,
-      badge: "Authority Mode",
-      color: "text-avoid bg-avoid/10 border-avoid/30",
+      role: "authority" as UserMode,
+      title: "Port Authority",
+      description: "Improve port operations, manage risks and ensure safer coastal infrastructure.",
+      icon: Shield,
+      tag: "Maritime Traffic",
     },
     {
-      title: "Marine Researchers",
-      role: "Sea surface temperature anomalies, salinity & coral monitoring",
+      role: "researcher" as UserMode,
+      title: "Researcher",
+      description: "Access multi-source data, advanced analytics and research-grade insights.",
       icon: Microscope,
-      badge: "Researcher Mode",
-      color: "text-go bg-go/10 border-go/30",
+      tag: "Ocean Analytics",
     },
     {
-      title: "Commercial Fleet Operators",
-      role: "Route risk mitigation, fuel optimization & collision avoidance",
+      role: "operator" as UserMode,
+      title: "Fleet Operator",
+      description: "Optimize routes, monitor vessels and reduce operational risks with real-time intelligence.",
       icon: Compass,
-      badge: "Operator Mode",
-      color: "text-wait bg-wait/10 border-wait/30",
+      tag: "Route Planning",
     },
   ];
 
   return (
-    <div className="overflow-hidden">
-      <section className="relative min-h-[88vh] flex items-center">
-        <div className="absolute inset-0 overflow-hidden">
+    <div className="bg-[#F8FAFC] min-h-screen">
+      {/* 1. Immersive Hero Section with Cycling Background Images */}
+      <section className="relative min-h-[82vh] flex items-center overflow-hidden border-b border-slate-200/80">
+        {/* Animated Background Slides */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="hero-slide" />
           <div className="hero-slide" />
           <div className="hero-slide" />
           <div className="hero-slide" />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/25 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/70 to-slate-950/40" />
         </div>
 
-        <div className="relative z-10 px-4 sm:px-8 lg:px-16 max-w-5xl py-20 space-y-8">
-          <h1 className="font-display font-black text-4xl sm:text-6xl lg:text-7xl tracking-tight leading-[1.08] text-white drop-shadow-lg">
-            The Future of Marine Intelligence Starts Here{" "}
-            <span className="text-[#E11D2E]">See Beyond the Surface</span>
-          </h1>
-          <div className="flex items-center gap-3">
-            <span className="h-px w-10 bg-[#E11D2E]" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[#E11D2E]" />
-          </div>
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 w-full">
+          <div className="max-w-3xl space-y-6 text-left">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/20 border border-blue-400/40 text-blue-200 text-xs font-bold backdrop-blur-md shadow-xs">
+              <span>Next-Gen Marine Decision Support</span>
+            </div>
 
-          <div className="flex flex-col sm:flex-row items-start gap-4 pt-2">
-            {isLoggedIn ? (
+            <h1 className="font-display font-black text-4xl sm:text-6xl lg:text-7xl text-white tracking-tight leading-[1.08] drop-shadow-md">
+              See Beyond the Surface.
+            </h1>
+
+            <p className="text-base sm:text-xl text-slate-200 font-medium leading-relaxed max-w-2xl drop-shadow">
+              AI-powered marine intelligence for safer seas, smarter decisions. Powered by official INCOIS, IMD, and Copernicus telemetry.
+            </p>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-4 pt-3">
               <Link
-                href="/chat"
-                className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-white text-text-primary font-bold text-sm sm:text-base hover:bg-cyan hover:text-white transition-all flex items-center justify-center gap-2.5 shadow-xl"
+                href="/select-role"
+                className="px-8 py-4 rounded-2xl bg-[#0066CC] hover:bg-[#0052A3] text-white font-extrabold text-sm sm:text-base tracking-wide flex items-center gap-2.5 shadow-lg shadow-blue-600/35 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
-                <span>Enter Situation Deck ({user?.name})</span>
-                <ArrowRight size={18} />
+                <Play size={18} fill="currentColor" />
+                <span>Try Demo</span>
               </Link>
-            ) : (
-              <>
-                <Link
-                  href="/login"
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-white text-text-primary font-bold text-sm sm:text-base hover:bg-cyan hover:text-white transition-all flex items-center justify-center gap-2.5 shadow-xl"
-                >
-                  <span>Login to Situation Deck</span>
-                  <ArrowRight size={18} />
-                </Link>
-                <Link
-                  href="/register"
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/70 text-sm sm:text-base font-semibold text-white transition-all flex items-center justify-center gap-2"
-                >
-                  <span>Create Free Account</span>
-                </Link>
-              </>
-            )}
+
+              <Link
+                href="/login"
+                className="px-8 py-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm sm:text-base shadow-lg transition-all hover:scale-[1.02]"
+              >
+                Login
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
-      <section id="features" className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-12 py-20">
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <h2 className="font-display font-bold text-2xl sm:text-4xl text-text-primary">
-            Engineered for High-Risk Marine Operations
-          </h2>
-          <p className="text-text-muted text-xs sm:text-sm">
-            Everything you need to assess coastal hazards, optimize routes, and comply with maritime safety standards.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-6 rounded-3xl bg-surface border border-border space-y-3 hover:border-cyan/40 transition-colors shadow-sm">
-            <div className="w-10 h-10 rounded-xl bg-cyan/10 border border-cyan/30 flex items-center justify-center text-cyan">
-              <Bot size={20} />
-            </div>
-            <h3 className="font-display font-bold text-lg text-text-primary">Multi-Agent Arbitration</h3>
-            <p className="text-text-muted text-xs sm:text-sm leading-relaxed">
-              Five autonomous agents synthesize weather radar, buoy telemetry, ocean currents, and GIS boundaries in parallel with sub-second latency.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-3xl bg-surface border border-border space-y-3 hover:border-cyan/40 transition-colors shadow-sm">
-            <div className="w-10 h-10 rounded-xl bg-go/10 border border-go/30 flex items-center justify-center text-go">
-              <ShieldCheck size={20} />
-            </div>
-            <h3 className="font-display font-bold text-lg text-text-primary">Transparent Evidence</h3>
-            <p className="text-text-muted text-xs sm:text-sm leading-relaxed">
-              Every GO / WAIT / AVOID recommendation is accompanied by verifiable provenance, confidence ratings, and direct sensor timestamps.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-3xl bg-surface border border-border space-y-3 hover:border-cyan/40 transition-colors shadow-sm">
-            <div className="w-10 h-10 rounded-xl bg-wait/10 border border-wait/30 flex items-center justify-center text-wait">
-              <Radio size={20} />
-            </div>
-            <h3 className="font-display font-bold text-lg text-text-primary">Geospatial Nautical Radar</h3>
-            <p className="text-text-muted text-xs sm:text-sm leading-relaxed">
-              Interactive bathymetry, live AIS vessel traffic, squall propagation vectors, and safe navigational channels rendered on vector charts.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8 pb-20">
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <h2 className="font-display font-bold text-2xl sm:text-4xl text-text-primary">
-            Tailored for Every Maritime Stakeholder
-          </h2>
-          <p className="text-text-muted text-xs sm:text-sm">
-            Switch effortlessly between personas with adaptive layers, alerts, and AI prompts
-          </p>
-        </div>
-
+      {/* 4 Benefit Pills Strip */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-20">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {personas.map((p) => {
-            const Icon = p.icon;
+          {featurePills.map((pill) => {
+            const Icon = pill.icon;
             return (
               <div
-                key={p.title}
-                className="p-5 rounded-2xl bg-surface border border-border space-y-3 flex flex-col justify-between hover:border-cyan/50 transition-all shadow-sm"
+                key={pill.title}
+                className="p-5 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-md hover:border-[#0066CC]/50 transition-all space-y-2 text-left"
               >
-                <div>
-                  <div className={`w-9 h-9 rounded-xl border flex items-center justify-center mb-3 ${p.color}`}>
-                    <Icon size={18} />
-                  </div>
-                  <h4 className="font-display font-bold text-base text-text-primary">{p.title}</h4>
-                  <p className="text-xs text-text-muted mt-1 leading-relaxed">{p.role}</p>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${pill.color}`}>
+                  <Icon size={18} />
                 </div>
-                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border self-start ${p.color}`}>
-                  {p.badge}
-                </span>
+                <h3 className="font-display font-black text-sm text-slate-900">
+                  {pill.title}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                  {pill.description}
+                </p>
               </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 2. Stakeholder Solutions Section (Page 1) */}
+      <section className="py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+        <div className="text-center space-y-3 max-w-2xl mx-auto">
+          <span className="text-xs font-black tracking-widest text-[#0066CC] uppercase">
+            Built for Every Stakeholder
+          </span>
+          <h2 className="font-display font-black text-3xl sm:text-4xl text-slate-900 tracking-tight">
+            Solutions for a Safer, Smarter Ocean
+          </h2>
+          <p className="text-sm font-medium text-slate-500 leading-relaxed">
+            Oceanix serves multiple stakeholders with tailored insights, tools and real-time intelligence.
+          </p>
+        </div>
+
+        {/* 4 Persona Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {stakeholders.map((s) => {
+            const Icon = s.icon;
+            return (
+              <button
+                key={s.role}
+                type="button"
+                onClick={() => handleRoleLaunch(s.role)}
+                className="group p-6 rounded-3xl bg-white border border-slate-200 hover:border-[#0066CC] shadow-2xs hover:shadow-xl transition-all text-left flex flex-col justify-between space-y-6"
+              >
+                <div className="space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#0066CC] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Icon size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-black text-lg text-slate-900 group-hover:text-[#0066CC] transition-colors">
+                      {s.title}
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                      {s.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-[#0066CC]">
+                  <span>Enter Deck</span>
+                  <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                </div>
+              </button>
             );
           })}
         </div>

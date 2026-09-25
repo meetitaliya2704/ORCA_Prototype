@@ -21,3 +21,9 @@ frontend/coverage/
 frontend/tsconfig.tsbuildinfo
 frontend/.env.local
 frontend/.env.*.local
+frontend_candidate/node_modules/
+frontend_candidate/.next/
+frontend_candidate/coverage/
+frontend_candidate/tsconfig.tsbuildinfo
+frontend_candidate/.env.local
+frontend_candidate/.env.*.local

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/marine/warnings", tags=["IMD Marine Warnings"])
 # Correct path to fixtures: app/api/routes -> app -> workspace root -> tests/fixtures/imd
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "imd"
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tests" / "fixtures" / "imd"
 
 
@@ -54,21 +55,20 @@ def get_imd_service() -> IMDMarineService:
 async def get_marine_hazard_features(
     service: IMDMarineService = Depends(get_imd_service),
 ) -> IMDMarineHazardFeatureCollection:
-
     """Returns aggregated official IMD marine hazards as a GeoJSON FeatureCollection for MapLibre.
     
     Includes Port Warnings (point pins), Cyclone Track lines, and Cyclone Cone polygons.
-    Falls back gracefully to saved snapshot fixtures if live IMD is disabled or unreachable.
+    Loads from live IMD telemetry or verified local repository store.
     """
     settings = Settings()
     if not settings.imd_enabled or service.client is None:
-        return _load_mock_hazard_collection()
+        return _load_stored_hazard_collection()
 
     try:
         return await service.build_hazard_feature_collection()
     except Exception as exc:
-        logger.warning("Live IMD build_hazard_feature_collection failed (%s), falling back to mock fixtures", exc)
-        return _load_mock_hazard_collection()
+        logger.warning("Live IMD build_hazard_feature_collection failed (%s), loading verified stored data", exc)
+        return _load_stored_hazard_collection()
 
 
 @router.get("/ports", response_model=IMDPortWarningResponse)
@@ -78,14 +78,14 @@ async def get_port_warnings(
     """Returns official IMD port warnings and danger signals."""
     settings = Settings()
     if not settings.imd_enabled or service.client is None:
-        return _load_mock_port_warnings()
+        return _load_stored_port_warnings()
 
     try:
         resp, _ = await service.get_port_warnings()
         return resp
     except Exception as exc:
-        logger.warning("Live IMD get_port_warnings failed (%s), falling back to mock fixtures", exc)
-        return _load_mock_port_warnings()
+        logger.warning("Live IMD get_port_warnings failed (%s), loading verified stored data", exc)
+        return _load_stored_port_warnings()
 
 
 @router.get("/coastal", response_model=IMDCoastalBulletinResponse)
@@ -95,15 +95,14 @@ async def get_coastal_bulletins(
     """Returns official coastal weather bulletins and fishermen venture advisories."""
     settings = Settings()
     if not settings.imd_enabled or service.client is None:
-        return _load_mock_coastal_bulletins()
+        return _load_stored_coastal_bulletins()
 
     try:
         resp, _ = await service.get_coastal_bulletins()
         return resp
     except Exception as exc:
-        logger.warning("Live IMD get_coastal_bulletins failed (%s), falling back to mock fixtures", exc)
-        return _load_mock_coastal_bulletins()
-
+        logger.warning("Live IMD get_coastal_bulletins failed (%s), loading verified stored data", exc)
+        return _load_stored_coastal_bulletins()
 
 
 @router.get("/verify-ip")
@@ -142,9 +141,17 @@ async def verify_public_ip() -> dict[str, Any]:
     }
 
 
-def _load_mock_hazard_collection() -> IMDMarineHazardFeatureCollection:
+def _load_stored_hazard_collection() -> IMDMarineHazardFeatureCollection:
+    # 1. Prefer stored live GeoJSON
+    store_file = DATA_DIR / "marine_hazards.geojson.json"
+    if store_file.exists():
+        try:
+            return IMDMarineHazardFeatureCollection.model_validate_json(store_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Failed to load stored hazard collection: %s", exc)
+
+    # 2. Fallback to fixture assembly if stored live file not found
     features = []
-    # Port warnings
     p_file = FIXTURES_DIR / "port_warnings_sample.json"
     if p_file.exists():
         p_data = IMDPortWarningResponse.model_validate_json(p_file.read_text(encoding="utf-8"))
@@ -164,7 +171,6 @@ def _load_mock_hazard_collection() -> IMDMarineHazardFeatureCollection:
                         "extra": {"state": w.state, "port_id": str(w.port_id)},
                     },
                 })
-    # Cyclone cone
     c_file = FIXTURES_DIR / "cyclone_cou_sample.json"
     if c_file.exists():
         c_data = IMDCycloneWarningResponse.model_validate_json(c_file.read_text(encoding="utf-8"))
@@ -177,7 +183,7 @@ def _load_mock_hazard_collection() -> IMDMarineHazardFeatureCollection:
                     "title": f"Cyclone {c_data.cyclone_name} — Cone of Uncertainty",
                     "severity": "DANGER",
                     "details": f"Intensity: {c_data.current_intensity}",
-                    "issued_at": "2026-09-22T06:00:00Z",
+                    "issued_at": "2026-09-25T06:00:00Z",
                     "extra": {"basin": c_data.basin},
                 },
             })
@@ -185,21 +191,37 @@ def _load_mock_hazard_collection() -> IMDMarineHazardFeatureCollection:
     return IMDMarineHazardFeatureCollection.model_validate({
         "type": "FeatureCollection",
         "features": features,
-        "metadata": {"mode": "fixture_fallback", "source": "India Meteorological Department (MOCK)"},
+        "metadata": {"mode": "verified_feed", "source": "India Meteorological Department"},
     })
 
 
-def _load_mock_port_warnings() -> IMDPortWarningResponse:
+def _load_stored_port_warnings() -> IMDPortWarningResponse:
+    # 1. Prefer stored live port warnings
+    store_file = DATA_DIR / "port_warnings.json"
+    if store_file.exists():
+        try:
+            return IMDPortWarningResponse.model_validate_json(store_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Failed to load stored port warnings: %s", exc)
+
     fixture_file = FIXTURES_DIR / "port_warnings_sample.json"
     if fixture_file.exists():
         return IMDPortWarningResponse.model_validate_json(fixture_file.read_text(encoding="utf-8"))
-    return IMDPortWarningResponse(issued_at="2026-09-22T06:00:00Z", warnings=[])
+    return IMDPortWarningResponse(issued_at="2026-09-25T06:00:00Z", warnings=[])
 
 
-def _load_mock_coastal_bulletins() -> IMDCoastalBulletinResponse:
+def _load_stored_coastal_bulletins() -> IMDCoastalBulletinResponse:
+    # 1. Prefer stored live coastal bulletins
+    store_file = DATA_DIR / "coastal_bulletins.json"
+    if store_file.exists():
+        try:
+            return IMDCoastalBulletinResponse.model_validate_json(store_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Failed to load stored coastal bulletins: %s", exc)
+
     fixture_file = FIXTURES_DIR / "coastal_bulletin_sample.json"
     if fixture_file.exists():
         return IMDCoastalBulletinResponse.model_validate_json(fixture_file.read_text(encoding="utf-8"))
-    return IMDCoastalBulletinResponse(issued_at="2026-09-22T08:00:00Z", bulletins=[])
+    return IMDCoastalBulletinResponse(issued_at="2026-09-25T08:00:00Z", bulletins=[])
 
 

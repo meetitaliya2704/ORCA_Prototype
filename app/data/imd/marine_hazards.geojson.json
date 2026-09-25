@@ -1,0 +1,976 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          76.3388,
+          9.4981
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Alapuzha — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "102",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          75.33,
+          11.91
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Azhikkal — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "28",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.267,
+          14.7
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Belekeri — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "43",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          75.804,
+          11.173
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Beypore — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "25",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.54,
+          13.99
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Bhatkal — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "29",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          75.7804,
+          11.2588
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Calicut — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "101",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          75.37,
+          11.87
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Cannanore — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "34",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          86.743695,
+          20.773992
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Chandbali — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Lower the signal no. LC-III ( Local Cautionary Signal No-III) at all ports of Odisha.",
+        "issued_at": "2026-09-25T21:19:18Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "6",
+          "state": "cwc_bhubaneswar"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          85.0122,
+          19.3359
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Chatrapur — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Lower the signal no. LC-III ( Local Cautionary Signal No-III) at all ports of Odisha.",
+        "issued_at": "2026-09-25T21:19:18Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "183",
+          "state": "cwc_bhubaneswar"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          76.267,
+          9.93
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Cochin — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "26",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.7629,
+          19.5282
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Dantiware (Palghar) — GDS10",
+        "severity": "DANGER",
+        "signal_number": 10,
+        "details": "Nil.",
+        "issued_at": "2026-09-25T20:36:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "52",
+          "state": "acwc_mumbai"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          86.9694,
+          20.8226
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Dhamra — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Lower the signal no. LC-III ( Local Cautionary Signal No-III) at all ports of Odisha.",
+        "issued_at": "2026-09-25T21:19:18Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "156",
+          "state": "cwc_bhubaneswar"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.6698,
+          13.6379
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Gangoli — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "184",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          84.954,
+          19.2916
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Gopalpur — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Lower the signal no. LC-III ( Local Cautionary Signal No-III) at all ports of Odisha.",
+        "issued_at": "2026-09-25T21:19:18Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "4",
+          "state": "cwc_bhubaneswar"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          88.06,
+          22.02
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Haldia Port — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Keep Hoisted Local Cautionary Signal-3 (LC3)  at Haldia & Kolkata Port with Sectional Signal- I & II at Sagar Island Port.",
+        "issued_at": "2026-09-25T13:10:59Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "126",
+          "state": "acwc_kolkata"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.7492,
+          13.4672
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "HANGARKATTA — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "133",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.44,
+          14.27
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Honavar — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "33",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.1,
+          14.81
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Karwar — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "22",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.98,
+          12.51
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Kasargode — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "32",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          88.31,
+          22.53
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Kolkata Port — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Keep Hoisted Local Cautionary Signal-3 (LC3)  at Haldia & Kolkata Port with Sectional Signal- I & II at Sagar Island Port.",
+        "issued_at": "2026-09-25T13:10:59Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "105",
+          "state": "acwc_kolkata"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          76.61,
+          8.89
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Kollam — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "39",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          76.982,
+          8.3988
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "KOVALAM/VIZHINJAM — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "129",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.41,
+          14.43
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Kumta — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "104",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.69,
+          13.63
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Kundapur — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "30",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.7,
+          13.6
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Malpe — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "31",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.85,
+          12.91
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Mangalore — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "158",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.0,
+          8.18
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Minicoy — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "36",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          76.1697,
+          10.1789
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "MUNAMBAM/KODUNGALLUR — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "131",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.48,
+          14.09
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Murudeshwar — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "40",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          76.5402,
+          8.9443
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "NEENDAKARA — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "130",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.8215,
+          12.9478
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "NEW MANGALURU — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "127",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.8361,
+          12.867
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "OLD MANGALURU — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "128",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.8,
+          12.95
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Panambur — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "160",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          86.67,
+          20.27
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Paradip — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Lower the signal no. LC-III ( Local Cautionary Signal No-III) at all ports of Odisha.",
+        "issued_at": "2026-09-25T21:19:18Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "3",
+          "state": "cwc_bhubaneswar"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          75.92,
+          10.767
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Ponnani — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "38",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.7721,
+          13.1408
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "PUDUBIDRI PORT — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "132",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          85.8276,
+          19.7952
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Puri — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Lower the signal no. LC-III ( Local Cautionary Signal No-III) at all ports of Odisha.",
+        "issued_at": "2026-09-25T21:19:18Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "5",
+          "state": "cwc_bhubaneswar"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          88.1,
+          21.72
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Sagar Island — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Keep Hoisted Local Cautionary Signal-3 (LC3)  at Haldia & Kolkata Port with Sectional Signal- I & II at Sagar Island Port.",
+        "issued_at": "2026-09-25T13:10:59Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "106",
+          "state": "acwc_kolkata"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.3553,
+          14.5239
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "TADADI PORT — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "154",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.35,
+          14.52
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Tadri Port — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "42",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          75.49,
+          11.75
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Thalacherry — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "37",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          76.9252,
+          8.4636
+        ]
+      },
+      "properties": {
+        "hazard_type": "port_warning",
+        "title": "Thiruvanathapuram — LC3",
+        "severity": "ALERT",
+        "signal_number": 3,
+        "details": "Hoist Local Cautionary signal number III",
+        "issued_at": "2026-09-25T13:21:22Z",
+        "valid_until": null,
+        "extra": {
+          "port_id": "35",
+          "state": "cwc_thiruvananthapuram"
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "generated_at": "2026-09-25T15:58:08.436231+00:00",
+    "source": "India Meteorological Department",
+    "mode": "verified_feed"
+  }
+}

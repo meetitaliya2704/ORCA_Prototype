@@ -3,184 +3,240 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useUserMode } from "@/lib/context";
-import { UserMode } from "@/lib/types";
+import Image from "next/image";
 import {
-  Waves,
-  Lock,
-  Mail,
-  ArrowRight,
-  Eye,
-  EyeOff,
+  Play,
+  User,
+  Plus,
+  Zap,
   Anchor,
-  ShieldAlert,
+  Shield,
   Microscope,
   Compass,
+  ArrowRight,
   Sparkles,
 } from "lucide-react";
+import { useUserMode, DEFAULT_PERSONAS } from "@/lib/context";
+import type { UserMode } from "@/lib/types";
 
-export default function LoginPage() {
+export default function GetStartedPage() {
   const router = useRouter();
-  const { login } = useUserMode();
-
+  const { login, switchRole } = useUserMode();
+  const [showLoginForm, setShowLoginForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) {
-      setError("Please enter your username/email and password.");
-      return;
-    }
-    setError("");
-    setLoading(true);
-
-    try {
-      await login(email, password, "fisherman");
-      router.push("/chat");
-    } catch {
-      setError("Login failed. Please check your credentials.");
-      setLoading(false);
-    }
+  const handleTryDemo = () => {
+    switchRole("fisherman");
+    router.push("/dashboard");
   };
 
-  const handleQuickDemo = async (role: UserMode, demoName: string, demoEmail: string) => {
-    setLoading(true);
-    await login(demoEmail, "demo123", role, demoName);
-    router.push("/chat");
+  const handleQuickRoleAccess = (role: UserMode) => {
+    switchRole(role);
+    router.push("/dashboard");
+  };
+
+  const handleFormLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    await login(email, password || "pass", "fisherman");
+    router.push("/dashboard");
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Glow accents */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-go/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-[calc(100vh-4rem)] bg-[#F8FAFC] py-12 px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center">
+      {/* Central Get Started Box */}
+      <div className="w-full max-w-xl text-center space-y-6">
+        {/* Brand Icon */}
+        <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-200/80 mx-auto flex items-center justify-center shadow-xs">
+          <Image
+            src="/brand/oceanix-logo.png"
+            alt="Oceanix"
+            width={44}
+            height={44}
+            className="w-10 h-10 object-contain"
+          />
+        </div>
 
-      <div className="w-full max-w-md bg-surface border border-border rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10 backdrop-blur-xl">
-        <div className="text-center mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-cyan/10 border border-cyan/30 flex items-center justify-center mx-auto mb-3 text-cyan shadow-lg shadow-cyan/10">
-            <Waves size={26} />
-          </div>
-          <h1 className="font-display font-black text-2xl text-text-primary tracking-tight">
-            Welcome to ORCA
+        <div className="space-y-2">
+          <h1 className="font-display font-black text-3xl sm:text-4xl text-slate-900 tracking-tight">
+            Get Started
           </h1>
-          <p className="text-xs sm:text-sm text-text-muted mt-1">
-            Sign in to access your marine intelligence situation deck
+          <p className="text-sm font-medium text-slate-500">
+            Choose how you want to access Oceanix Marine Intelligence
           </p>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 rounded-xl bg-avoid/10 border border-avoid/40 text-avoid text-xs">
-            {error}
-          </div>
-        )}
+        {/* Action Buttons */}
+        <div className="space-y-3 pt-2">
+          {/* Primary: Try Demo (No Signup Required) */}
+          <button
+            type="button"
+            onClick={handleTryDemo}
+            className="w-full py-4 px-6 rounded-2xl bg-[#0066CC] hover:bg-[#0052A3] text-white font-extrabold text-base tracking-wide flex items-center justify-center gap-2.5 shadow-lg shadow-blue-600/20 transition-all hover:scale-[1.01] active:scale-[0.99]"
+          >
+            <Play size={18} fill="currentColor" />
+            <span>Try Demo (No Signup Required)</span>
+          </button>
 
-        {/* Login Form */}
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-text-muted mb-1.5 uppercase tracking-wider">
-              Username or Email
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="captain@maritime.org"
-                className="w-full bg-surface-light border border-border rounded-xl py-2.5 pl-10 pr-3 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-cyan transition-colors"
-                required
-              />
-            </div>
+          <div className="relative py-2 flex items-center justify-center">
+            <span className="w-full border-t border-slate-200" />
+            <span className="absolute px-3 bg-[#F8FAFC] text-xs font-semibold text-slate-400 uppercase">
+              Or
+            </span>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider">
-                Password
-              </label>
-              <a href="#" className="text-[11px] text-cyan hover:underline">
-                Forgot password?
-              </a>
-            </div>
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-surface-light border border-border rounded-xl py-2.5 pl-10 pr-10 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-cyan transition-colors"
-                required
-              />
+          {!showLoginForm ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                onClick={() => setShowLoginForm(true)}
+                className="py-3 px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-2xs"
               >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                <User size={15} className="text-[#0066CC]" />
+                <span>Login to your account</span>
               </button>
+
+              <Link
+                href="/register"
+                className="py-3 px-4 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-2xs"
+              >
+                <Plus size={15} className="text-slate-500" />
+                <span>Create a new account</span>
+              </Link>
             </div>
-          </div>
+          ) : (
+            <form onSubmit={handleFormLogin} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3 text-left">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600">Email or Username</label>
+                <input
+                  type="text"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="user@marine.gov.in"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0066CC]"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2.5 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition-colors"
+              >
+                Sign In
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-xl bg-cyan hover:bg-cyan/90 text-bg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan/20 disabled:opacity-60"
-          >
-            <span>{loading ? "Authenticating..." : "Sign In to Deck"}</span>
-            <ArrowRight size={16} />
-          </button>
-        </form>
-
-        {/* 1-Click Persona Demo Access */}
-        <div className="mt-6 pt-5 border-t border-border/70">
-          <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted mb-3 font-semibold uppercase tracking-wider">
-            <Sparkles size={13} className="text-cyan" />
-            <span>Instant Demo Access</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <button
-              onClick={() => handleQuickDemo("fisherman", "Captain Ramesh", "ramesh@fisheries.org")}
-              className="p-2 rounded-xl bg-surface-light hover:bg-cyan/10 border border-border hover:border-cyan/40 text-left transition-all flex items-center gap-2"
-            >
-              <Anchor size={14} className="text-cyan shrink-0" />
-              <span className="truncate font-medium">Fisherman</span>
-            </button>
-            <button
-              onClick={() => handleQuickDemo("authority", "Commander Rao", "rao@coastguard.gov")}
-              className="p-2 rounded-xl bg-surface-light hover:bg-avoid/10 border border-border hover:border-avoid/40 text-left transition-all flex items-center gap-2"
-            >
-              <ShieldAlert size={14} className="text-avoid shrink-0" />
-              <span className="truncate font-medium">Port Authority</span>
-            </button>
-            <button
-              onClick={() => handleQuickDemo("researcher", "Dr. Ananya Sen", "ananya@oceanology.res")}
-              className="p-2 rounded-xl bg-surface-light hover:bg-go/10 border border-border hover:border-go/40 text-left transition-all flex items-center gap-2"
-            >
-              <Microscope size={14} className="text-go shrink-0" />
-              <span className="truncate font-medium">Researcher</span>
-            </button>
-            <button
-              onClick={() => handleQuickDemo("operator", "Capt. Vikram Singhania", "vikram@maersk-line.com")}
-              className="p-2 rounded-xl bg-surface-light hover:bg-wait/10 border border-border hover:border-wait/40 text-left transition-all flex items-center gap-2"
-            >
-              <Compass size={14} className="text-wait shrink-0" />
-              <span className="truncate font-medium">Fleet Operator</span>
-            </button>
-          </div>
+      {/* Direct Stakeholder Access Strip */}
+      <div className="w-full max-w-5xl mt-14 space-y-4">
+        <div className="flex items-center gap-2 text-slate-800 font-display font-black text-lg">
+          <Zap size={18} className="text-[#0066CC] fill-[#0066CC]" />
+          <span>Direct Stakeholder Access</span>
         </div>
 
-        {/* Register Link */}
-        <div className="text-center mt-6 text-xs text-text-muted">
-          Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-cyan font-bold hover:underline">
-            Register for Free
-          </Link>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Fisherman Access */}
+          <button
+            type="button"
+            onClick={() => handleQuickRoleAccess("fisherman")}
+            className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-[#0066CC] shadow-2xs hover:shadow-md transition-all text-left space-y-3"
+          >
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0066CC] flex items-center justify-center group-hover:scale-105 transition-transform">
+              <Anchor size={20} />
+            </div>
+            <div>
+              <h3 className="font-display font-black text-sm text-slate-900 group-hover:text-[#0066CC] transition-colors">
+                Fisherman Access
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                See how Oceanix helps fishermen get safe and accurate fishing zone advice.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center gap-1.5 text-xs font-bold text-[#0066CC]">
+              <span>Enter Deck</span>
+              <ArrowRight size={13} className="group-hover:translate-x-1 transition-transform" />
+            </div>
+          </button>
+
+          {/* Authority Access */}
+          <button
+            type="button"
+            onClick={() => handleQuickRoleAccess("authority")}
+            className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-[#0066CC] shadow-2xs hover:shadow-md transition-all text-left space-y-3"
+          >
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+              <Shield size={20} />
+            </div>
+            <div>
+              <h3 className="font-display font-black text-sm text-slate-900 group-hover:text-[#0066CC] transition-colors">
+                Port Authority Access
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                Explore how authorities monitor, analyze and respond to marine hazards.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center gap-1.5 text-xs font-bold text-[#0066CC]">
+              <span>Enter Deck</span>
+              <ArrowRight size={13} className="group-hover:translate-x-1 transition-transform" />
+            </div>
+          </button>
+
+          {/* Researcher Access */}
+          <button
+            type="button"
+            onClick={() => handleQuickRoleAccess("researcher")}
+            className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-[#0066CC] shadow-2xs hover:shadow-md transition-all text-left space-y-3"
+          >
+            <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+              <Microscope size={20} />
+            </div>
+            <div>
+              <h3 className="font-display font-black text-sm text-slate-900 group-hover:text-[#0066CC] transition-colors">
+                Researcher Access
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                Access marine data, insights and analysis tools for research and study.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center gap-1.5 text-xs font-bold text-[#0066CC]">
+              <span>Enter Deck</span>
+              <ArrowRight size={13} className="group-hover:translate-x-1 transition-transform" />
+            </div>
+          </button>
+
+          {/* Fleet Access */}
+          <button
+            type="button"
+            onClick={() => handleQuickRoleAccess("operator")}
+            className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-[#0066CC] shadow-2xs hover:shadow-md transition-all text-left space-y-3"
+          >
+            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+              <Compass size={20} />
+            </div>
+            <div>
+              <h3 className="font-display font-black text-sm text-slate-900 group-hover:text-[#0066CC] transition-colors">
+                Fleet Operator Access
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                See how fleet operators get operational and route safety insights.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center gap-1.5 text-xs font-bold text-[#0066CC]">
+              <span>Enter Deck</span>
+              <ArrowRight size={13} className="group-hover:translate-x-1 transition-transform" />
+            </div>
+          </button>
         </div>
       </div>
     </div>

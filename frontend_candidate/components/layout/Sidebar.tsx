@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  LayoutDashboard,
   MessageSquareText,
   Map as MapIcon,
   Bell,
@@ -14,6 +15,7 @@ import {
 import { useChatSessions } from "@/lib/chat-session-context";
 
 const navItems = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/chat", label: "AI Chat", icon: MessageSquareText },
   { href: "/map", label: "Map", icon: MapIcon },
   { href: "/alerts", label: "Alerts", icon: Bell },
